@@ -24,6 +24,12 @@ echo "Deploying Jaeger..."
 kubectl apply -f k8s/jaeger.yaml
 kubectl wait --for=condition=ready pod -l app=jaeger --timeout=60s
 
+# Delete existing service deployments
+echo ""
+echo "Removing old service deployments..."
+kubectl delete deployment service-a service-b service-c
+sleep 5
+
 # Deploy Microservices
 echo ""
 echo "Deploying Microservices..."

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/Aneesh-Hegde/tracery/control-plane/proto/controlplane"
+	pb "github.com/Aneesh-Hegde/tracery/controlplane/proto/controlplane"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -83,7 +83,7 @@ func (s *ControlPlaneServer) ListBreakpoints(ctx context.Context, req *pb.ListBr
 	}, nil
 }
 
-func (s *ControlPlaneServer) DeleteBreakpoint(ctx context.Context, req *pb.DeleteBreakPointRequest) (*pb.DeleteBreakPointResponse, error) {
+func (s *ControlPlaneServer) DeleteBreakPoint(ctx context.Context, req *pb.DeleteBreakPointRequest) (*pb.DeleteBreakPointResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -108,7 +108,7 @@ func (s *ControlPlaneServer) DeleteBreakpoint(ctx context.Context, req *pb.Delet
 // Implementation in phase4
 // }
 
-func (s *ControlPlaneServer) StreamSnapshot (req *pb.StreamTracesRequest, stream pb.ControlPlane_StreamTracesServer) (error){
+func (s *ControlPlaneServer) StreamTraces (req *pb.StreamTracesRequest, stream pb.ControlPlane_StreamTracesServer) (error){
 	ch:=make(chan *pb.TraceEvent,100)
 
 	s.mu.Lock()

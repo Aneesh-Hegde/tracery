@@ -24,6 +24,10 @@ const (
 	ControlPlane_DeleteBreakPoint_FullMethodName   = "/controlplane.ControlPlane/DeleteBreakPoint"
 	ControlPlane_GetSnapshot_FullMethodName        = "/controlplane.ControlPlane/GetSnapshot"
 	ControlPlane_StreamTraces_FullMethodName       = "/controlplane.ControlPlane/StreamTraces"
+	ControlPlane_FreezeTrace_FullMethodName        = "/controlplane.ControlPlane/FreezeTrace"
+	ControlPlane_GetFreezeStatus_FullMethodName    = "/controlplane.ControlPlane/GetFreezeStatus"
+	ControlPlane_ReleaseTrace_FullMethodName       = "/controlplane.ControlPlane/ReleaseTrace"
+	ControlPlane_ListActiveFreezes_FullMethodName  = "/controlplane.ControlPlane/ListActiveFreezes"
 )
 
 // ControlPlaneClient is the client API for ControlPlane service.
@@ -35,6 +39,10 @@ type ControlPlaneClient interface {
 	DeleteBreakPoint(ctx context.Context, in *DeleteBreakPointRequest, opts ...grpc.CallOption) (*DeleteBreakPointResponse, error)
 	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
 	StreamTraces(ctx context.Context, in *StreamTracesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TraceEvent], error)
+	FreezeTrace(ctx context.Context, in *FreezeTraceRequest, opts ...grpc.CallOption) (*FreezeTraceResponse, error)
+	GetFreezeStatus(ctx context.Context, in *GetFreezeStatusRequest, opts ...grpc.CallOption) (*GetFreezeStatusResponse, error)
+	ReleaseTrace(ctx context.Context, in *ReleaseTraceRequest, opts ...grpc.CallOption) (*ReleaseTraceResponse, error)
+	ListActiveFreezes(ctx context.Context, in *ListActiveFreezesRequest, opts ...grpc.CallOption) (*ListActiveFreezesResponse, error)
 }
 
 type controlPlaneClient struct {
@@ -104,6 +112,46 @@ func (c *controlPlaneClient) StreamTraces(ctx context.Context, in *StreamTracesR
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ControlPlane_StreamTracesClient = grpc.ServerStreamingClient[TraceEvent]
 
+func (c *controlPlaneClient) FreezeTrace(ctx context.Context, in *FreezeTraceRequest, opts ...grpc.CallOption) (*FreezeTraceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FreezeTraceResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_FreezeTrace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlPlaneClient) GetFreezeStatus(ctx context.Context, in *GetFreezeStatusRequest, opts ...grpc.CallOption) (*GetFreezeStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetFreezeStatusResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_GetFreezeStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlPlaneClient) ReleaseTrace(ctx context.Context, in *ReleaseTraceRequest, opts ...grpc.CallOption) (*ReleaseTraceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseTraceResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_ReleaseTrace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlPlaneClient) ListActiveFreezes(ctx context.Context, in *ListActiveFreezesRequest, opts ...grpc.CallOption) (*ListActiveFreezesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListActiveFreezesResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_ListActiveFreezes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ControlPlaneServer is the server API for ControlPlane service.
 // All implementations must embed UnimplementedControlPlaneServer
 // for forward compatibility.
@@ -113,6 +161,10 @@ type ControlPlaneServer interface {
 	DeleteBreakPoint(context.Context, *DeleteBreakPointRequest) (*DeleteBreakPointResponse, error)
 	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
 	StreamTraces(*StreamTracesRequest, grpc.ServerStreamingServer[TraceEvent]) error
+	FreezeTrace(context.Context, *FreezeTraceRequest) (*FreezeTraceResponse, error)
+	GetFreezeStatus(context.Context, *GetFreezeStatusRequest) (*GetFreezeStatusResponse, error)
+	ReleaseTrace(context.Context, *ReleaseTraceRequest) (*ReleaseTraceResponse, error)
+	ListActiveFreezes(context.Context, *ListActiveFreezesRequest) (*ListActiveFreezesResponse, error)
 	mustEmbedUnimplementedControlPlaneServer()
 }
 
@@ -137,6 +189,18 @@ func (UnimplementedControlPlaneServer) GetSnapshot(context.Context, *GetSnapshot
 }
 func (UnimplementedControlPlaneServer) StreamTraces(*StreamTracesRequest, grpc.ServerStreamingServer[TraceEvent]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamTraces not implemented")
+}
+func (UnimplementedControlPlaneServer) FreezeTrace(context.Context, *FreezeTraceRequest) (*FreezeTraceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FreezeTrace not implemented")
+}
+func (UnimplementedControlPlaneServer) GetFreezeStatus(context.Context, *GetFreezeStatusRequest) (*GetFreezeStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFreezeStatus not implemented")
+}
+func (UnimplementedControlPlaneServer) ReleaseTrace(context.Context, *ReleaseTraceRequest) (*ReleaseTraceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReleaseTrace not implemented")
+}
+func (UnimplementedControlPlaneServer) ListActiveFreezes(context.Context, *ListActiveFreezesRequest) (*ListActiveFreezesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListActiveFreezes not implemented")
 }
 func (UnimplementedControlPlaneServer) mustEmbedUnimplementedControlPlaneServer() {}
 func (UnimplementedControlPlaneServer) testEmbeddedByValue()                      {}
@@ -242,6 +306,78 @@ func _ControlPlane_StreamTraces_Handler(srv interface{}, stream grpc.ServerStrea
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ControlPlane_StreamTracesServer = grpc.ServerStreamingServer[TraceEvent]
 
+func _ControlPlane_FreezeTrace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FreezeTraceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).FreezeTrace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_FreezeTrace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).FreezeTrace(ctx, req.(*FreezeTraceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlPlane_GetFreezeStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFreezeStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).GetFreezeStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_GetFreezeStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).GetFreezeStatus(ctx, req.(*GetFreezeStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlPlane_ReleaseTrace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseTraceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).ReleaseTrace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_ReleaseTrace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).ReleaseTrace(ctx, req.(*ReleaseTraceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlPlane_ListActiveFreezes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListActiveFreezesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).ListActiveFreezes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_ListActiveFreezes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).ListActiveFreezes(ctx, req.(*ListActiveFreezesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ControlPlane_ServiceDesc is the grpc.ServiceDesc for ControlPlane service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -264,6 +400,22 @@ var ControlPlane_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSnapshot",
 			Handler:    _ControlPlane_GetSnapshot_Handler,
+		},
+		{
+			MethodName: "FreezeTrace",
+			Handler:    _ControlPlane_FreezeTrace_Handler,
+		},
+		{
+			MethodName: "GetFreezeStatus",
+			Handler:    _ControlPlane_GetFreezeStatus_Handler,
+		},
+		{
+			MethodName: "ReleaseTrace",
+			Handler:    _ControlPlane_ReleaseTrace_Handler,
+		},
+		{
+			MethodName: "ListActiveFreezes",
+			Handler:    _ControlPlane_ListActiveFreezes_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

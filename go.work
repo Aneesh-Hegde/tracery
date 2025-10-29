@@ -1,0 +1,9 @@
+go 1.24.9
+
+use (
+	./control-plane
+	./service-a
+	./service-b
+	./service-c
+	./tracery-cli
+)

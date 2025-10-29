@@ -8,7 +8,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/Aneesh-Hegde/tracery/control-plane/proto/controlplane"
+	pb "github.com/Aneesh-Hegde/tracery/controlplane/proto/controlplane"
+	// pb "github.com/Aneesh-Hegde/tracery/controlplane/proto"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -26,14 +27,16 @@ type BreakPoint struct {
 
 type ControlPlaneServer struct {
 	pb.UnimplementedControlPlaneServer
-	mu            sync.RWMutex
-	breakPoints   map[string]*BreakPoint
-	traceListeners []chan *pb.TraceEvent
+	mu                sync.RWMutex
+	breakPoints       map[string]*BreakPoint
+	traceListeners    []chan *pb.TraceEvent
+	freezeCoordinator *FreezeCoordinator
+	traceMonitor      *TraceMonitor
 }
 
 func NewControlPlaneServer() *ControlPlaneServer {
 	return &ControlPlaneServer{
-		breakPoints:   make(map[string]*BreakPoint),
+		breakPoints:    make(map[string]*BreakPoint),
 		traceListeners: make([]chan *pb.TraceEvent, 0),
 	}
 }
@@ -83,7 +86,7 @@ func (s *ControlPlaneServer) ListBreakpoints(ctx context.Context, req *pb.ListBr
 	}, nil
 }
 
-func (s *ControlPlaneServer) DeleteBreakpoint(ctx context.Context, req *pb.DeleteBreakPointRequest) (*pb.DeleteBreakPointResponse, error) {
+func (s *ControlPlaneServer) DeleteBreakPoint(ctx context.Context, req *pb.DeleteBreakPointRequest) (*pb.DeleteBreakPointResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -108,18 +111,18 @@ func (s *ControlPlaneServer) DeleteBreakpoint(ctx context.Context, req *pb.Delet
 // Implementation in phase4
 // }
 
-func (s *ControlPlaneServer) StreamSnapshot (req *pb.StreamTracesRequest, stream pb.ControlPlane_StreamTracesServer) (error){
-	ch:=make(chan *pb.TraceEvent,100)
+func (s *ControlPlaneServer) StreamTraces(req *pb.StreamTracesRequest, stream pb.ControlPlane_StreamTracesServer) error {
+	ch := make(chan *pb.TraceEvent, 100)
 
 	s.mu.Lock()
-	s.traceListeners=append(s.traceListeners,ch)
+	s.traceListeners = append(s.traceListeners, ch)
 	s.mu.Unlock()
 
-	defer func(){
+	defer func() {
 		s.mu.Lock()
-		for i, listener:=range s.traceListeners{
-			if listener==ch{
-				s.traceListeners= append(s.traceListeners[:i],s.traceListeners[i+1:]...)
+		for i, listener := range s.traceListeners {
+			if listener == ch {
+				s.traceListeners = append(s.traceListeners[:i], s.traceListeners[i+1:]...)
 				break
 			}
 		}
@@ -127,8 +130,8 @@ func (s *ControlPlaneServer) StreamSnapshot (req *pb.StreamTracesRequest, stream
 		close(ch)
 	}()
 
-	for event:=range ch {
-		if err:=stream.Send(event); err!=nil{
+	for event := range ch {
+		if err := stream.Send(event); err != nil {
 			return err
 		}
 	}
@@ -137,20 +140,174 @@ func (s *ControlPlaneServer) StreamSnapshot (req *pb.StreamTracesRequest, stream
 
 }
 
-func main(){
-	listener,err:=net.Listen("tcp",":50051")
-	if err!=nil{
-		log.Fatal("Failed to listen: %v",err)
+func (s *ControlPlaneServer) BroadcastTraceEvent(event *pb.TraceEvent) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, ch := range s.traceListeners {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
+}
+
+func (s *ControlPlaneServer) BroadcastFreezeEvent(traceID, status string) {
+	event := &pb.TraceEvent{
+		TraceId:     traceID,
+		ServiceName: "control-plane",
+		Endpoint:    "/freeze",
+		Timestamp:   time.Now().Unix(),
+		Attributes: map[string]string{
+			"freeze_status": status,
+		},
+	}
+	s.BroadcastTraceEvent(event)
+}
+
+func (s *ControlPlaneServer) CheckBreakpoint(serviceName, endpoint string, attributes map[string]string) *BreakPoint {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, bp := range s.breakPoints {
+		if !bp.Enabled {
+			continue
+		}
+
+		if bp.ServiceName != serviceName {
+			continue
+		}
+
+		if bp.EndPoint != "" && bp.EndPoint != endpoint {
+			continue
+		}
+
+		match := true
+		for key, value := range bp.Conditions {
+			if attributes[key] != value {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			log.Printf("[ControlPlane] 🎯 Breakpoint %s matched for %s%s", bp.ID, serviceName, endpoint)
+			return bp
+		}
 	}
 
-	grpcServer:=grpc.NewServer()
-	controlplane:=NewControlPlaneServer()
+	return nil
+}
 
-	pb.RegisterControlPlaneServer(grpcServer,controlplane)
+// OnBreakpointHit is called when a trace hits a breakpoint
+func (s *ControlPlaneServer) OnBreakpointHit(traceID string, breakpoint *BreakPoint) {
+	log.Printf("[ControlPlane] 🔥 Breakpoint hit! Initiating freeze for trace %s", traceID)
+
+	// Determine which services are involved in this trace
+	// For now, freeze all services (in production, analyze trace topology)
+	services := []string{"service-a", "service-b", "service-c"}
+
+	err := s.freezeCoordinator.InitiateFreeze(traceID, services, breakpoint.ID)
+	if err != nil {
+		log.Printf("[ControlPlane] Failed to initiate freeze: %v", err)
+	}
+}
+
+// FreezeTrace manually freezes a trace
+func (s *ControlPlaneServer) FreezeTrace(ctx context.Context, req *pb.FreezeTraceRequest) (*pb.FreezeTraceResponse, error) {
+	log.Printf("[ControlPlane] Manual freeze requested for trace %s", req.TraceId)
+
+	services := req.Services
+	if len(services) == 0 {
+		services = []string{"service-a", "service-b", "service-c"}
+	}
+
+	err := s.freezeCoordinator.InitiateFreeze(req.TraceId, services, "manual")
+	if err != nil {
+		return &pb.FreezeTraceResponse{
+			Success: false,
+			RespMessage: err.Error(),
+			State:   "failed",
+		}, nil
+	}
+
+	return &pb.FreezeTraceResponse{
+		Success: true,
+		RespMessage: "Freeze initiated",
+		State:   "preparing",
+	}, nil
+}
+
+// ReleaseTrace manually releases a frozen trace
+func (s *ControlPlaneServer) ReleaseTrace(ctx context.Context, req *pb.ReleaseTraceRequest) (*pb.ReleaseTraceResponse, error) {
+	log.Printf("[ControlPlane] Manual release requested for trace %s", req.TraceId)
+
+	err := s.freezeCoordinator.ReleaseFreeze(req.TraceId)
+	if err != nil {
+		return &pb.ReleaseTraceResponse{
+			Success: false,
+			RespMessage: err.Error(),
+		}, nil
+	}
+
+	return &pb.ReleaseTraceResponse{
+		Success: true,
+		RespMessage: "Trace released",
+	}, nil
+}
+
+// GetFreezeStatus returns the status of a frozen trace
+func (s *ControlPlaneServer) GetFreezeStatus(ctx context.Context, req *pb.GetFreezeStatusRequest) (*pb.GetFreezeStatusResponse, error) {
+	freeze, err := s.freezeCoordinator.GetFreezeStatus(req.TraceId)
+	if err != nil {
+		return &pb.GetFreezeStatusResponse{
+			TraceId: req.TraceId,
+			State:   "not_found",
+		}, nil
+	}
+
+	return &pb.GetFreezeStatusResponse{
+		TraceId:      freeze.TraceID,
+		State:        string(freeze.State),
+		Services:     freeze.Services,
+		FrozenAt:     freeze.FrozenAt.Unix(),
+		BreakpointId: freeze.BreakPointID,
+	}, nil
+}
+
+// ListActiveFreezes returns all active freezes
+func (s *ControlPlaneServer) ListActiveFreezes(ctx context.Context, req *pb.ListActiveFreezesRequest) (*pb.ListActiveFreezesResponse, error) {
+	freezes := s.freezeCoordinator.ListActiveFreezes()
+
+	freezeInfos := make([]*pb.FreezeInfo, 0, len(freezes))
+	for _, freeze := range freezes {
+		freezeInfos = append(freezeInfos, &pb.FreezeInfo{
+			TraceId:  freeze.TraceID,
+			State:    string(freeze.State),
+			Services: freeze.Services,
+			FrozenAt: freeze.FrozenAt.Unix(),
+		})
+	}
+
+	return &pb.ListActiveFreezesResponse{
+		Freezes: freezeInfos,
+	}, nil
+}
+
+func main() {
+	listener, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatal("Failed to listen: %v", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	controlplane := NewControlPlaneServer()
+
+	pb.RegisterControlPlaneServer(grpcServer, controlplane)
 	reflection.Register(grpcServer)
 
-	if err:=grpcServer.Serve(listener);err!=nil{
-		log.Fatal("Failed to serve: %v",err)
+	if err := grpcServer.Serve(listener); err != nil {
+		log.Fatal("Failed to serve: %v", err)
 	}
 
 }

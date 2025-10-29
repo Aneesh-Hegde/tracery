@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -7,17 +7,19 @@ RUN apk add --no-cache protobuf-dev protobuf git
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
+RUN mkdir -p proto
 COPY proto/controlplane.proto proto/
-RUN mkdir -p pb
 
-RUN protoc --go_out=pb --go_opt=paths=source_relative \
-    --go-grpc_out=pb --go-grpc_opt=paths=source_relative \
+RUN protoc --go_out=. --go_opt=paths=source_relative \
+    --go-grpc_out=. --go-grpc_opt=paths=source_relative \
     proto/controlplane.proto
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY *.go ./
+
+RUN go mod tidy
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o controlplane .
 

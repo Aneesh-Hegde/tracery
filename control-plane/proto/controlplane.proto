@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package controlplane;
 
-option go_package="github.com/Aneesh-Hegde/tracery/control-plane/proto/controlplane";
+option go_package="/controlplane";
 
 service ControlPlane{
   rpc RegisterBreakpoint(RegisterBreakPointRequest) returns (RegisterBreakPointResponse);
@@ -36,7 +36,7 @@ message RegisterBreakPointResponse{
 message ListBreakpointsRequest{}
 
 message ListBreakpointsResponse{
-  repeated Breakpoint breakpoins=1;
+  repeated Breakpoint breakpoints=1;
 }
 
 message DeleteBreakPointRequest{

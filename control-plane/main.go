@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/Aneesh-Hegde/tracery/controlplane/proto/controlplane"
-	// pb "github.com/Aneesh-Hegde/tracery/controlplane/proto"
-
+	// pb "github.com/Aneesh-Hegde/tracery/controlplane/proto/controlplane"
+	pb "github.com/Aneesh-Hegde/tracery/controlplane/proto"
+	collectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -295,19 +295,51 @@ func (s *ControlPlaneServer) ListActiveFreezes(ctx context.Context, req *pb.List
 }
 
 func main() {
+	log.Println("🚀 Starting Tracery Control Plane...")
+
+	// Initialize Control Plane Server
+	controlplane := NewControlPlaneServer()
+	
+	// Initialize Freeze Coordinator
+	freezeCoordinator := NewFreezeCoordinator(controlplane)
+	controlplane.freezeCoordinator = freezeCoordinator
+	
+	// Initialize Trace Monitor
+	traceMonitor := NewTraceMonitor(controlplane)
+	controlplane.traceMonitor = traceMonitor
+	
+	// Initialize OTel Collector integration
+otelCollector, err := NewOTelCollector(traceMonitor)
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize OTelCollector: %v", err)
+	}
+	log.Println("✅ OTel trace receiver initialized")
+	// Start Trace Monitor
+	go traceMonitor.Start()
+
+	// Setup gRPC server
 	listener, err := net.Listen("tcp", ":50051")
 	if err != nil {
-		log.Fatal("Failed to listen: %v", err)
+		log.Fatalf("❌ Failed to listen: %v", err)
 	}
 
 	grpcServer := grpc.NewServer()
-	controlplane := NewControlPlaneServer()
-
 	pb.RegisterControlPlaneServer(grpcServer, controlplane)
+
+	// ⬇️ ADD THIS: Register the OTel trace receiver service
+	collectorpb.RegisterTraceServiceServer(grpcServer, otelCollector)
+
 	reflection.Register(grpcServer)
 
+	log.Println("✅ Control Plane gRPC server listening on :50051")
+	log.Println("📡 Breakpoint API: RegisterBreakpoint, ListBreakpoints, DeleteBreakpoint")
+	log.Println("❄️  Freeze API: FreezeTrace, ReleaseTrace, GetFreezeStatus, ListActiveFreezes")
+	log.Println("📊 Stream API: StreamTraces")
+	// ⬇️ ADD THIS: Log that the OTLP receiver is active
+	log.Println("🛰️  OTLP Trace Receiver listening on :50051")
+
 	if err := grpcServer.Serve(listener); err != nil {
-		log.Fatal("Failed to serve: %v", err)
+		log.Fatalf("❌ Failed to serve: %v", err)
 	}
 
 }

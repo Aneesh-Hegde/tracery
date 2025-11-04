@@ -33,7 +33,7 @@ type TraceFreeze struct {
 type FreezeCoordinator struct {
 	mu           sync.RWMutex
 	freezes      map[string]*TraceFreeze
-	envoyManager *EnvoyFilterManager
+	envoyManager *EnvoyCommunicator
 	controlplane *ControlPlaneServer
 }
 
@@ -43,7 +43,11 @@ func NewFreezeCoordinator(cp *ControlPlaneServer) *FreezeCoordinator {
 		controlplane: cp,
 	}
 
-	fc.envoyManager = NewEnvoyFilterManager()
+	var err error
+	fc.envoyManager, err = NewEnvoyCommunicator("default")
+	if err != nil {
+		log.Fatalf("Failed to initialize EnvoyCommunicator: %v", err)
+	}
 
 	return fc
 }
@@ -243,4 +247,3 @@ func (fc *FreezeCoordinator) ListActiveFreezes() []*TraceFreeze {
 	}
 	return freezes
 }
-

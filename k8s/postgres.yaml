@@ -1,26 +1,71 @@
+---
+# ConfigMap with initialization script
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-init
+  namespace: default
 data:
   init.sql: |
-    CREATE DATABASE payments;
+    -- Create database if not exists
+    SELECT 'CREATE DATABASE payments'
+    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'payments')\gexec
+    
+    -- Connect to payments database
+    \c payments
+    
+    -- Create payments table
+    CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        order_id VARCHAR(100) NOT NULL,
+        customer_id VARCHAR(100) NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        trace_id VARCHAR(100),
+        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    -- Create index on trace_id for faster lookups
+    CREATE INDEX IF NOT EXISTS idx_payments_trace_id ON payments(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id);
+    
+    -- Create orders table (for service-b)
+    CREATE TABLE IF NOT EXISTS orders (
+        id SERIAL PRIMARY KEY,
+        order_id VARCHAR(100) NOT NULL UNIQUE,
+        customer_id VARCHAR(100) NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        trace_id VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    -- Create index on trace_id
+    CREATE INDEX IF NOT EXISTS idx_orders_trace_id ON orders(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
+    
+    -- Grant permissions
+    GRANT ALL PRIVILEGES ON DATABASE payments TO dcdot;
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO dcdot;
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO dcdot;
+    
+    -- Insert some test data (optional)
+    INSERT INTO payments (order_id, customer_id, amount, status, trace_id)
+    VALUES ('ORD-INIT-001', 'CUST-INIT', 0.00, 'initialized', 'init-trace')
+    ON CONFLICT DO NOTHING;
+    
+    \echo 'Database initialization complete!'
+
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
----
+# PostgreSQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
+  namespace: default
 spec:
   replicas: 1
   selector:
@@ -33,16 +78,19 @@ spec:
     spec:
       containers:
       - name: postgres
-        image: postgres:15-alpine
+        image: postgres:14-alpine
         ports:
         - containerPort: 5432
+          name: postgres
         env:
+        - name: POSTGRES_DB
+          value: "dcdot"
         - name: POSTGRES_USER
           value: "dcdot"
         - name: POSTGRES_PASSWORD
           value: "dcdot123"
-        - name: POSTGRES_DB
-          value: "payments"
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
@@ -55,22 +103,41 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - dcdot
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - dcdot
+          initialDelaySeconds: 5
+          periodSeconds: 5
       volumes:
       - name: postgres-storage
-        persistentVolumeClaim:
-          claimName: postgres-pvc
+        emptyDir: {}
       - name: init-script
         configMap:
           name: postgres-init
+
 ---
+# PostgreSQL Service
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
+  namespace: default
 spec:
   selector:
     app: postgres
   ports:
   - port: 5432
     targetPort: 5432
+    protocol: TCP
   type: ClusterIP

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 echo "======================================"
 echo "Redeploying Services with Istio Sidecars"
@@ -22,9 +22,9 @@ kubectl apply -f k8s/services.yaml
 # Wait for services to be ready (now with 2 containers each)
 echo ""
 echo "Waiting for services to be ready (this may take 2-3 minutes)..."
-kubectl wait --for=condition=ready pod -l app=service-a --timeout=180s
-kubectl wait --for=condition=ready pod -l app=service-b --timeout=180s
-kubectl wait --for=condition=ready pod -l app=service-c --timeout=180s
+kubectl wait --for=condition=ready pod -l app=service-a --timeout=180s --namespace=default
+kubectl wait --for=condition=ready pod -l app=service-b --timeout=180s --namespace=default
+kubectl wait --for=condition=ready pod -l app=service-c --timeout=180s --namespace=default
 
 echo ""
 echo "======================================"

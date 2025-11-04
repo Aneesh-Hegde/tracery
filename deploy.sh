@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 echo "======================================"
 echo "Deploying DCDOT to Kubernetes"
@@ -37,9 +37,9 @@ kubectl apply -f k8s/services.yaml
 
 echo ""
 echo "Waiting for services to be ready..."
-kubectl wait --for=condition=ready pod -l app=service-a --timeout=120s
-kubectl wait --for=condition=ready pod -l app=service-b --timeout=120s
-kubectl wait --for=condition=ready pod -l app=service-c --timeout=120s
+kubectl wait --for=condition=ready pod -l app=service-a --timeout=120s --namespace=default
+kubectl wait --for=condition=ready pod -l app=service-b --timeout=120s --namespace=default
+kubectl wait --for=condition=ready pod -l app=service-c --timeout=120s --namespace=default
 
 echo ""
 echo "======================================"
@@ -58,7 +58,6 @@ echo ""
 
 
 
-set -e
 
 echo "======================================"
 echo "Deploying Phase 2: Service Mesh & Control Plane"
@@ -91,9 +90,9 @@ kubectl apply -f k8s/control-plane.yaml
 
 echo ""
 echo "Waiting for Control Plane to be ready..."
-kubectl wait --for=condition=ready pod -l app=control-plane --timeout=120s
+kubectl wait --for=condition=ready pod -l app=control-plane --timeout=120s--namespace=default
 
-echo ""
+echo ""                                                                   
 echo "======================================"
 echo "✅ Phase 2 Deployment Complete!"
 echo "======================================"

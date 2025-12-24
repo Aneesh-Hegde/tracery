@@ -141,4 +141,7 @@ tracery trace resume <trace-id>
 
 The name combines "trace" (distributed tracing) with the suffix "-ery" (like Meshery), and references the architectural concept of tracery - ornamental stonework forming intricate patterns, much like how traces form patterns across distributed systems.
 
+---
+## Licence
+MIT Licence
 

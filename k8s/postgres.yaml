@@ -7,12 +7,7 @@ metadata:
   namespace: default
 data:
   init.sql: |
-    -- Create database if not exists
-    SELECT 'CREATE DATABASE payments'
-    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'payments')\gexec
-    
-    -- Connect to payments database
-    \c payments
+    -- This script runs against the 'payments' database (set as POSTGRES_DB)
     
     -- Create payments table
     CREATE TABLE IF NOT EXISTS payments (
@@ -26,7 +21,7 @@ data:
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
-    -- Create index on trace_id for faster lookups
+    -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_payments_trace_id ON payments(trace_id);
     CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments(order_id);
     CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id);
@@ -43,22 +38,14 @@ data:
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
-    -- Create index on trace_id
+    -- Create indexes for orders
     CREATE INDEX IF NOT EXISTS idx_orders_trace_id ON orders(trace_id);
     CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
     
-    -- Grant permissions
-    GRANT ALL PRIVILEGES ON DATABASE payments TO dcdot;
-    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO dcdot;
-    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO dcdot;
-    
-    -- Insert some test data (optional)
+    -- Insert test data (optional)
     INSERT INTO payments (order_id, customer_id, amount, status, trace_id)
     VALUES ('ORD-INIT-001', 'CUST-INIT', 0.00, 'initialized', 'init-trace')
     ON CONFLICT DO NOTHING;
-    
-    \echo 'Database initialization complete!'
-
 ---
 # PostgreSQL Deployment
 apiVersion: apps/v1
@@ -75,16 +62,18 @@ spec:
     metadata:
       labels:
         app: postgres
+      annotations:
+        sidecar.istio.io/inject: "false"  # ← CRITICAL: No Istio on database
     spec:
       containers:
       - name: postgres
-        image: postgres:14-alpine
+        image: postgres:16-alpine  # Use same version as Docker Compose
         ports:
         - containerPort: 5432
           name: postgres
         env:
         - name: POSTGRES_DB
-          value: "dcdot"
+          value: "payments"  # ← Changed from "dcdot" to "payments"
         - name: POSTGRES_USER
           value: "dcdot"
         - name: POSTGRES_PASSWORD
@@ -109,23 +98,28 @@ spec:
             - pg_isready
             - -U
             - dcdot
+            - -d
+            - payments
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
         readinessProbe:
           exec:
             command:
             - pg_isready
             - -U
             - dcdot
-          initialDelaySeconds: 5
+            - -d
+            - payments
+          initialDelaySeconds: 10
           periodSeconds: 5
+          timeoutSeconds: 3
       volumes:
       - name: postgres-storage
         emptyDir: {}
       - name: init-script
         configMap:
           name: postgres-init
-
 ---
 # PostgreSQL Service
 apiVersion: v1

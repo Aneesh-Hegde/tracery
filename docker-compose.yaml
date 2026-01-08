@@ -1,0 +1,129 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dcdot
+      POSTGRES_PASSWORD: dcdot123
+      POSTGRES_DB: payments
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - tracing
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    ports:
+      - "16686:16686"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - tracing
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.140.1
+    command: ["--config=/etc/otel-config.yaml"]
+    configs:
+      - source: otel_config
+        target: /etc/otel-config.yaml
+    ports:
+      - "4317:4317"
+      - "9090:9090"
+    depends_on:
+      - jaeger
+    networks:
+      - tracing
+
+  # Service A – API Gateway (calls Service B)
+  service-a:
+    build: ./service-a
+    ports:
+      - "8081:8080"
+    environment:
+      - PORT=8080
+      - SERVICE_B_URL=http://service-b:8080
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - service-b
+    networks:
+      - tracing
+
+  # Service B – Processing service (calls Service C)
+  service-b:
+    build: ./service-b
+    ports:
+      - "8082:8080"
+    environment:
+      - PORT=8080
+      - SERVICE_C_URL=http://service-c:8080
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+      - otel-collector
+      - service-c
+    command: >
+      sh -c "
+        until pg_isready -h postgres -p 5432 -U dcdot >/dev/null 2>&1; do sleep 1; done &&
+        echo 'service-b ready' &&
+        ./service
+      "
+    networks:
+      - tracing
+
+  # Service C – Payment service (final DB writer)
+  service-c:
+    build: ./service-c
+    ports:
+      - "8083:8080"
+    environment:
+      - PORT=8080
+      - SERVICE_NAME=service-c-payment
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+      - otel-collector
+    command: >
+      sh -c "
+        until pg_isready -h postgres -p 5432 -U dcdot >/dev/null 2>&1; do sleep 1; done &&
+        echo 'service-c ready' &&
+        ./service
+      "
+    networks:
+      - tracing
+
+configs:
+  otel_config:
+    content: |
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+      extensions:
+        health_check: {}
+      exporters:
+        otlp:
+          endpoint: jaeger:4317
+          tls:
+            insecure: true
+        prometheus:
+          endpoint: 0.0.0.0:9090
+          namespace: testapp
+        debug:
+      service:
+        extensions: [health_check]
+        pipelines:
+          traces:
+            receivers: [otlp]
+            exporters: [otlp, debug]
+          metrics:
+            receivers: [otlp]
+            exporters: [prometheus, debug]
+
+volumes:
+  postgres-data:
+
+networks:
+  tracing:

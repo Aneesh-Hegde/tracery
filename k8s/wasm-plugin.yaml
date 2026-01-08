@@ -1,100 +1,113 @@
----
-# WasmPlugin resource to deploy the freeze filter to all services
 apiVersion: extensions.istio.io/v1alpha1
 kind: WasmPlugin
 metadata:
-  name: freeze-filter
+  name: tracery-agent
   namespace: default
 spec:
-  # Apply to all pods with app label (service-a, service-b, service-c)
   selector:
     matchLabels:
-      # Apply to all services - remove this to apply to specific services
-      # app: service-a
-  
-  # Phase determines when the filter runs in the chain
-  # AUTHN runs after authentication, good for our use case
+      app: service-a
+  url: file:///var/local/lib/wasm-filters/freeze-filter.wasm
   phase: AUTHN
-  
-  # Priority determines order relative to other filters
-  priority: 100
-  
-  # URL to the WASM binary
-  # Option 1: OCI Image (recommended for production)
-  url: oci://your-registry/freeze-filter:v1
-  
-  # Option 2: HTTP URL (for development)
-  # url: http://your-server/freeze-filter.wasm
-  
-  # Option 3: Local file (for testing, requires mounting)
-  # url: file:///etc/envoy-filters/freeze-filter.wasm
-  
-  # Image pull policy
-  imagePullPolicy: Always
-  
-  # Optional: Image pull secret for private registries
-  # imagePullSecret: your-registry-secret
-  
-  # Initial plugin configuration (can be updated dynamically)
-  pluginConfig:
-    # Initial empty config - Control Plane will update this dynamically
-    trace_id: ""
-    state: ""
-    timeout_ms: 30000
-  
-  # VM configuration
-  vmConfig:
-    # Environment variables available to the filter
-    env:
-    - name: POD_NAME
-      valueFrom: HOST
-    - name: POD_NAMESPACE
-      valueFrom: HOST
-
----
-# Alternative: ConfigMap-based deployment (for filters < 1MB)
-# Uncomment this if your WASM binary is small enough
-# apiVersion: v1
-# kind: ConfigMap
+# ---
+# # WasmPlugin resource to deploy the freeze filter to all services
+# apiVersion: extensions.istio.io/v1alpha1
+# kind: WasmPlugin
 # metadata:
-#   name: freeze-filter-wasm
-#   namespace: istio-system
-# binaryData:
-#   plugin.wasm: <base64-encoded-wasm-binary>
-
----
-# EnvoyFilter for advanced configuration (if needed)
-# This is optional - WasmPlugin above handles most cases
-apiVersion: networking.istio.io/v1alpha3
-kind: EnvoyFilter
-metadata:
-  name: freeze-filter-stats
-  namespace: default
-spec:
-  workloadSelector:
-    labels:
-      # Apply to services that have the freeze filter
-  configPatches:
-  - applyTo: HTTP_FILTER
-    match:
-      context: SIDECAR_INBOUND
-      listener:
-        filterChain:
-          filter:
-            name: envoy.filters.network.http_connection_manager
-    patch:
-      operation: INSERT_BEFORE
-      value:
-        name: envoy.filters.http.wasm
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
-          config:
-            configuration:
-              "@type": type.googleapis.com/google.protobuf.StringValue
-              value: |
-                {}
-            vm_config:
-              runtime: envoy.wasm.runtime.v8
-              code:
-                local:
-                  filename: /etc/envoy-filters/freeze-filter.wasm
+#   name: freeze-filter
+#   namespace: default
+# spec:
+#   # Apply to all pods with app label (service-a, service-b, service-c)
+#   selector:
+#     matchLabels:
+#       # Apply to all services - remove this to apply to specific services
+#       app: service-a
+#
+#   # Phase determines when the filter runs in the chain
+#   # AUTHN runs after authentication, good for our use case
+#   phase: AUTHN
+#
+#   # Priority determines order relative to other filters
+#   priority: 100
+#
+#   # URL to the WASM binary
+#   # Option 1: OCI Image (recommended for production)
+#   url: file:///var/local/lib/wasm-filters/freeze-filter.wasm
+#
+#   # Option 2: HTTP URL (for development)
+#   # url: http://your-server/freeze-filter.wasm
+#
+#   # Option 3: Local file (for testing, requires mounting)
+#   # url: file:///etc/envoy-filters/freeze-filter.wasm
+#
+#   # Image pull policy
+#
+#   # Optional: Image pull secret for private registries
+#   # imagePullSecret: your-registry-secret
+#
+#   # Initial plugin configuration (can be updated dynamically)
+#   pluginConfig:
+#     # Initial empty config - Control Plane will update this dynamically
+#     trace_id: ""
+#     state: ""
+#     timeout_ms: 30000
+#
+#   # VM configuration
+#   vmConfig:
+#     # Environment variables available to the filter
+#     env:
+#     - name: POD_NAME
+#       valueFrom: HOST
+#     - name: POD_NAMESPACE
+#       valueFrom: HOST
+#
+# ---
+# # Alternative: ConfigMap-based deployment (for filters < 1MB)
+# # Uncomment this if your WASM binary is small enough
+# # apiVersion: v1
+# # kind: ConfigMap
+# # metadata:
+# #   name: freeze-filter-wasm
+# #   namespace: istio-system
+# # binaryData:
+# #   plugin.wasm: <base64-encoded-wasm-binary>
+#
+# ---
+# # EnvoyFilter for advanced configuration (if needed)
+# # This is optional - WasmPlugin above handles most cases
+# apiVersion: networking.istio.io/v1alpha3
+# kind: EnvoyFilter
+# metadata:
+#   name: freeze-filter-stats
+#   namespace: default
+# spec:
+#   workloadSelector:
+#     labels:
+#       # Apply to services that have the freeze filter
+#   configPatches:
+#   - applyTo: HTTP_FILTER
+#     match:
+#       context: SIDECAR_INBOUND
+#       listener:
+#         filterChain:
+#           filter:
+#             name: envoy.filters.network.http_connection_manager
+#     patch:
+#       operation: INSERT_BEFORE
+#       value:
+#         name: envoy.filters.http.wasm
+#         typed_config:
+#           "@type": type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
+#           config:
+#             configuration:
+#               "@type": type.googleapis.com/google.protobuf.StringValue
+#               value: |
+#                 {
+#                   "trace_id": "a2d1df4d261db843051c3756461f1945",
+#                   "state": "frozen"
+#                 }
+#             vm_config:
+#               runtime: envoy.wasm.runtime.v8
+#               code:
+#                 local:
+#                   filename: /var/local/lib/wasm-filters/freeze-filter.wasm

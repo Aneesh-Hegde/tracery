@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/Aneesh-Hegde/tracery/control-plane/proto/controlplane"
+	pb "github.com/Aneesh-Hegde/tracery/control-plane/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -21,8 +21,6 @@ func main() {
 
 	conn, err := grpc.NewClient("localhost:50051",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-		grpc.WithTimeout(5*time.Second),
 	)
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
@@ -195,7 +193,7 @@ func deleteBreakpoint(ctx context.Context, client pb.ControlPlaneClient, id stri
 }
 
 func watchTraces(ctx context.Context, client pb.ControlPlaneClient) {
-	fmt.Println("Watching traces (Ctrl+C to stop)...\n")
+	fmt.Println("Watching traces (Ctrl+C to stop)...")
 	stream, err := client.StreamTraces(ctx, &pb.StreamTracesRequest{})
 	if err != nil {
 		log.Fatalf("Error: %v", err)

@@ -32,7 +32,7 @@ func (tm *TraceMonitor) Start() {
 }
 
 func (tm *TraceMonitor) ProcessTrace(traceID, serviceName, endpoint string, attributes map[string]string) {
-	log.Printf("[TraceMonitor] Processing trace %s from %s%s", traceID, serviceName, serviceName, endpoint)
+	log.Printf("[TraceMonitor] Processing trace %s from %s%s", traceID, serviceName, endpoint)
 
 	breakpoint := tm.controlplane.CheckBreakpoint(serviceName, endpoint, attributes)
 

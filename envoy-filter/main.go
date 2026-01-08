@@ -1,221 +1,202 @@
 package main
 
 import (
-	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
 
-func main() {
+const tickMilliseconds uint32 = 1000
+
+func main() {}
+
+func init() {
 	proxywasm.SetVMContext(&vmContext{})
 }
 
-type vmContext struct {
-	types.DefaultVMContext
-}
+type vmContext struct{ types.DefaultVMContext }
 
 func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
 	return &pluginContext{
-		contextID:    contextID,
-		frozenTraces: make(map[string]*FreezeState),
+		contextID:      contextID,
+		frozenRequests: make(map[uint32]*frozenRequest),
 	}
 }
 
-type FreezeState struct {
-	TraceID      string
-	State        string
-	TimeoutMs    int64
-	FrozenAtNano int64
-}
+// --- PLUGIN CONTEXT (Global Manager) ---
 
-type FreezeConfig struct {
-	TraceID   string `json:"trace_id"`
-	State     string `json:"state"`
-	TimeoutMs int64  `json:"timeout_ms"`
+type frozenRequest struct {
+	traceID        string
+	checkScheduled bool
 }
 
 type pluginContext struct {
-	types.PluginContext
-	contextID    uint32
-	frozenTraces map[string]*FreezeState
+	types.DefaultPluginContext
+	contextID      uint32
+	frozenRequests map[uint32]*frozenRequest
+	tickCount      uint32
 }
 
-func (ctx *pluginContext) onPluginStart(pluginConfigurationSize int) types.OnPluginStartStatus {
-	proxywasm.LogInfo("🔧 Freeze Filter Plugin Started (Resilient Mode)")
+func (ctx *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPluginStartStatus {
+	if err := proxywasm.SetTickPeriodMilliSeconds(tickMilliseconds); err != nil {
+		proxywasm.LogCriticalf("Failed to set tick period: %v", err)
+		return types.OnPluginStartStatusFailed
+	}
+	proxywasm.LogInfof("Ticker started (%d ms)", tickMilliseconds)
 	return types.OnPluginStartStatusOK
+}
+
+func (ctx *pluginContext) OnTick() {
+	ctx.tickCount++
+	
+	if len(ctx.frozenRequests) == 0 {
+		return
+	}
+
+	proxywasm.LogInfof("[TICK #%d] Checking %d frozen requests", ctx.tickCount, len(ctx.frozenRequests))
+
+	for httpID, fr := range ctx.frozenRequests {
+		if fr.checkScheduled {
+			continue
+		}
+
+		currentHttpID := httpID
+		currentTraceID := fr.traceID
+		fr.checkScheduled = true
+
+		if _, err := proxywasm.DispatchHttpCall(
+			"control_plane",
+			[][2]string{
+				{":method", "GET"},
+				{":path", "/check?trace_id=" + currentTraceID},
+				{":authority", "control-plane"},
+			},
+			nil, nil, 5000,
+			ctx.createTickCheckCallback(currentHttpID, currentTraceID),
+		); err != nil {
+			proxywasm.LogErrorf("Failed to dispatch check for context %d: %v", currentHttpID, err)
+			fr.checkScheduled = false
+		}
+	}
+}
+
+func (ctx *pluginContext) createTickCheckCallback(httpID uint32, traceID string) func(int, int, int) {
+	return func(numHeaders, bodySize, numTrailers int) {
+		if fr, exists := ctx.frozenRequests[httpID]; exists {
+			fr.checkScheduled = false
+		}
+
+		body, err := proxywasm.GetHttpCallResponseBody(0, bodySize)
+		if err != nil {
+			proxywasm.LogErrorf("Failed to get response body: %v", err)
+			return
+		}
+
+		responseStr := string(body)
+
+		if !strings.Contains(responseStr, "freeze") {
+			proxywasm.LogInfof("🟢 ALLOW - Resuming Context %d (Trace: %s)", httpID, traceID)
+
+			delete(ctx.frozenRequests, httpID)
+
+			if err := proxywasm.SetEffectiveContext(httpID); err != nil {
+				proxywasm.LogCriticalf("❌ Failed to set effective context %d: %v", httpID, err)
+				return
+			}
+
+			if err := proxywasm.ResumeHttpRequest(); err != nil {
+				proxywasm.LogCriticalf("❌ Failed to resume request %d: %v", httpID, err)
+			} else {
+				proxywasm.LogInfof("✅ Resumed request %d", httpID)
+			}
+		}
+	}
 }
 
 func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	return &httpContext{
-		contextID:     contextID,
-		pluginContext: ctx,
+		contextID: contextID,
+		pluginCtx: ctx,
 	}
 }
 
-func (ctx *pluginContext) onPLuginConfiguration(configurationSize int) types.OnPluginStartStatus {
-	data, err := proxywasm.GetPluginConfiguration()
-	if err != nil {
-		proxywasm.LogCriticalf("❌ Error reading plugin configuration: %v", err)
-		return types.OnPluginStartStatusFailed
-	}
-	if len(data) == 0 {
-		return types.OnPluginStartStatusOK
-	}
-
-	var config FreezeConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		proxywasm.LogCriticalf("❌ Error parsing configuration: %v", err)
-	}
-
-	ctx.handleFreezeCommand(config)
-	return types.OnPluginStartStatusOK
-}
-
-func (ctx *pluginContext) handleFreezeCommand(config FreezeConfig) {
-	traceID := config.TraceID
-
-	proxywasm.LogInfof("📨 Received freeze command: trace_id=%s, state=%s, timeout=%dms",
-		traceID, config.State, config.TimeoutMs)
-
-	switch config.State {
-	case "PREPARE":
-		if _, exists := ctx.frozenTraces[traceID]; !exists {
-			ctx.frozenTraces[traceID] = &FreezeState{
-				TraceID:      traceID,
-				State:        "PREPARE",
-				TimeoutMs:    config.TimeoutMs,
-				FrozenAtNano: time.Now().UnixNano(),
-			}
-			proxywasm.LogInfof("✅ Prepared freeze for trace: %s", traceID)
-		}
-	case "FREEZE":
-		if state, exists := ctx.frozenTraces[traceID]; exists {
-			state.State = "FROZEN"
-			state.FrozenAtNano = time.Now().UnixNano()
-			proxywasm.LogInfof("❄️ FROZEN trace: %s", traceID)
-		} else {
-			ctx.frozenTraces[traceID] = &FreezeState{
-				TraceID:      traceID,
-				State:        "FROZEN",
-				TimeoutMs:    config.TimeoutMs,
-				FrozenAtNano: time.Now().UnixNano(),
-			}
-			proxywasm.LogInfof("❄️ FROZEN trace (direct): %s", traceID)
-		}
-	case "UNFREEZE":
-		if _, exists := ctx.frozenTraces[traceID]; exists {
-			delete(ctx.frozenTraces, traceID)
-			proxywasm.LogInfof("✅ UNFROZEN and cleaned up trace: %s", traceID)
-		}
-	}
-
-}
+// --- HTTP CONTEXT (Per Request) ---
 
 type httpContext struct {
 	types.DefaultHttpContext
-	contextID     uint32
-	pluginContext *pluginContext
-	traceID       string
-	frozen        bool
+	contextID uint32
+	pluginCtx *pluginContext
+	traceID   string
 }
 
-func (ctx *httpContext) onHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
-	traceID := ctx.extractTraceID()
+func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
+	ctx.traceID = ctx.extractTraceID()
 
-	if traceID == "" {
+	if ctx.traceID == "" {
 		return types.ActionContinue
 	}
 
-	ctx.traceID = traceID
+	proxywasm.LogInfof("📥 Request with Trace: %s", ctx.traceID)
+	ctx.initialCheck()
+	return types.ActionPause
+}
 
-	freezeState, exists := ctx.pluginContext.frozenTraces[traceID]
-	if !exists {
-		return types.ActionContinue
+func (ctx *httpContext) initialCheck() {
+	if _, err := proxywasm.DispatchHttpCall(
+		"control_plane",
+		[][2]string{
+			{":method", "GET"},
+			{":path", "/check?trace_id=" + ctx.traceID},
+			{":authority", "control-plane"},
+		},
+		nil, nil, 5000,
+		ctx.createInitialCheckCallback(),
+	); err != nil {
+		proxywasm.LogErrorf("Failed initial check dispatch: %v", err)
+		proxywasm.ResumeHttpRequest()
 	}
+}
 
-	now := time.Now().UnixNano()
-	elapsed := (now - freezeState.FrozenAtNano) / 1e6 //convert to millisecond
+func (ctx *httpContext) createInitialCheckCallback() func(int, int, int) {
+	return func(numHeaders, bodySize, numTrailers int) {
+		body, err := proxywasm.GetHttpCallResponseBody(0, bodySize)
+		if err != nil {
+			proxywasm.LogErrorf("Failed to get response body: %v", err)
+			proxywasm.ResumeHttpRequest()
+			return
+		}
 
-	if elapsed > freezeState.TimeoutMs {
-		proxywasm.LogWarnf("⏰ Freeze timeout exceeded for trace: %s (elapsed: %dms), auto-releasing",
-			traceID, elapsed)
-		delete(ctx.pluginContext.frozenTraces, traceID)
-		return types.ActionContinue
-	}
+		responseStr := string(body)
 
-	if freezeState.State == "FROZEN" {
-		ctx.frozen = true
-		proxywasm.LogWarnf("🛑 BLOCKING request for frozen trace: %s", traceID)
-
-		// CRITICAL: Return immediate response to prevent service degradation
-		// This ensures:
-		// 1. Client gets immediate feedback (not timeout)
-		// 2. Service worker thread is not blocked
-		// 3. Load balancer health checks still work
-		// 4. Circuit breakers don't trip
-		// 5. Connection pools don't exhaust
-
-		responseBody := []byte(`{
-			"error": "trace_frozen",
-			"message": "This trace is frozen for debugging. The request will be replayed after release.",
-			"trace_id": "` + traceID + `",
-			"debug_info": {
-				"frozen_for_ms": ` + string(rune(elapsed)) + `,
-				"auto_release_in_ms": ` + string(rune(freezeState.TimeoutMs-elapsed)) + `,
-				"reason": "distributed_breakpoint"
+		if strings.Contains(responseStr, "freeze") {
+			proxywasm.LogInfof("❄️ FREEZE - Context %d (Trace: %s)", ctx.contextID, ctx.traceID)
+			
+			ctx.pluginCtx.frozenRequests[ctx.contextID] = &frozenRequest{
+				traceID:        ctx.traceID,
+				checkScheduled: false,
 			}
-		}`)
 
-		// Return 202 Accepted instead of 503
-		// 202 = Request accepted but not processed yet
-		// This is semantically correct for "frozen" requests
-		// And won't trigger circuit breakers or retries
-		proxywasm.SendHttpResponse(202, [][2]string{
-			{"content-type", "application/json"},
-			{"x-freeze-status", "frozen"},
-			{"x-freeze-trace-id", traceID},
-			{"x-freeze-elapsed-ms", string(rune(elapsed))},
-			{"cache-control", "no-store"}, // Don't cache frozen responses
-			{"retry-after", "5"},          // Client can retry after 5 seconds
-		}, responseBody, -1)
-
-		return types.ActionPause
+			proxywasm.LogInfof("Registered - Total frozen: %d", len(ctx.pluginCtx.frozenRequests))
+		} else {
+			proxywasm.LogInfof("🟢 ALLOW - Context %d (Trace: %s)", ctx.contextID, ctx.traceID)
+			if err := proxywasm.ResumeHttpRequest(); err != nil {
+				proxywasm.LogErrorf("Failed to resume: %v", err)
+			}
+		}
 	}
-
-	return types.ActionContinue
-
 }
 
 func (ctx *httpContext) extractTraceID() string {
-	// Try x-b3-traceid (Zipkin B3 format)
-	if traceID, err := proxywasm.GetHttpRequestHeader("x-b3-traceid"); err == nil && traceID != "" {
-		return traceID
+	if val, err := proxywasm.GetHttpRequestHeader("traceparent"); err == nil && len(val) >= 35 {
+		return val[3:35]
 	}
-
-	// Try x-trace-id
-	if traceID, err := proxywasm.GetHttpRequestHeader("x-trace-id"); err == nil && traceID != "" {
-		return traceID
-	}
-
-	// Try traceparent (W3C Trace Context format)
-	if traceparent, err := proxywasm.GetHttpRequestHeader("traceparent"); err == nil && traceparent != "" {
-		parts := strings.Split(traceparent, "-")
-		if len(parts) >= 2 {
-			return parts[1]
-		}
-	}
-
 	return ""
 }
 
-func (ctx *httpContext) onHttpResponseHeaders(numHeaders int,endofStream bool) types.Action{
-	if ctx.frozen{
-		proxywasm.AddHttpRequestHeader("x-freeze-filter","request-frozen")
-	}else{
-		proxywasm.AddHttpRequestHeader("x-freeze-filter","active")
-	} 
-	return types.ActionContinue
+func (ctx *httpContext) OnHttpStreamDone() {
+	if _, exists := ctx.pluginCtx.frozenRequests[ctx.contextID]; exists {
+		delete(ctx.pluginCtx.frozenRequests, ctx.contextID)
+		proxywasm.LogInfof("Cleaned up frozen context %d", ctx.contextID)
+	}
 }

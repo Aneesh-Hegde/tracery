@@ -25,7 +25,11 @@ import (
 )
 
 var tracer trace.Tracer
-
+type ServiceBResponse struct {
+    OrderID       string `json:"order_id"`
+    ProcessedAt   string `json:"processed_at"`
+    PaymentStatus string `json:"payment_status"`
+}
 func initTracer() func() {
 	ctx := context.Background()
 
@@ -36,7 +40,6 @@ func initTracer() func() {
 
 	conn, err := grpc.NewClient(otelEndPoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		log.Fatalf("Error in establishing grpc connection: %v", err)
@@ -135,7 +138,7 @@ func handleOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reqBody, _ := json.Marshal(orderReq)
-	req, err := http.NewRequestWithContext(ctx, "POST", serviceBUrl+"/process",
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost:10002"+"/process",
 		io.NopCloser(bytes.NewBuffer(reqBody)))
 	if err != nil {
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
@@ -153,7 +156,7 @@ func handleOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	var processingResp map[string]interface{}
+	var processingResp ServiceBResponse
 	if err := json.NewDecoder(resp.Body).Decode(&processingResp); err != nil {
 		http.Error(w, "Failed to parse response", http.StatusInternalServerError)
 		span.RecordError(err)
@@ -165,7 +168,7 @@ func handleOrder(w http.ResponseWriter, r *http.Request) {
 		OrderID:       orderReq.OrderID,
 		Status:        "completed",
 		ProcessedBy:   "service-a,service-b,service-c",
-		PaymentStatus: processingResp["payment_status"].(string),
+		PaymentStatus: processingResp.PaymentStatus,
 		Amount:        orderReq.Amount,
 	}
 

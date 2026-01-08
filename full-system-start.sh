@@ -245,6 +245,10 @@ kubectl port-forward svc/jaeger 30686:16686 > /tmp/pf-jaeger.log 2>&1 &
 echo "Port forwarding service-a (30080)..."
 kubectl port-forward svc/service-a 30080:8080 > /tmp/pf-service-a.log 2>&1 &
 
+# This connects your local port 14317 to the jaeger service's port 4317
+kubectl port-forward service/jaeger 14317:4317 > /tmp/pf-jaeger-1.log 2>&1 &
+
+
 sleep 3
 echo -e "${GREEN}✅ Port forwards active${NC}"
 

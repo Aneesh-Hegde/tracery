@@ -2,19 +2,45 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
 	// pb "github.com/Aneesh-Hegde/tracery/controlplane/proto/controlplane"
 	pb "github.com/Aneesh-Hegde/tracery/controlplane/proto"
-	collectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"github.com/google/uuid"
+	collectorpb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
+
+type FreezeResponse struct {
+	Action string `json:"action"` //tell the action to take i.e to freeze or allow
+}
+
+func startHttpServer(fc *FreezeCoordinator) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/check", func(w http.ResponseWriter, r *http.Request) {
+		traceID := r.URL.Query().Get("trace_id")
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if fc.IsTraceFrozen(traceID) {
+			json.NewEncoder(w).Encode(FreezeResponse{Action: "freeze"})
+		} else {
+			json.NewEncoder(w).Encode(FreezeResponse{Action: "allow"})
+		}
+	})
+	log.Println("🌍 Universal HTTP Interface listening on :8080")
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Printf("HTTP Server failed: %v", err)
+	}
+}
 
 type BreakPoint struct {
 	ID          string
@@ -225,16 +251,16 @@ func (s *ControlPlaneServer) FreezeTrace(ctx context.Context, req *pb.FreezeTrac
 	err := s.freezeCoordinator.InitiateFreeze(req.TraceId, services, "manual")
 	if err != nil {
 		return &pb.FreezeTraceResponse{
-			Success: false,
+			Success:     false,
 			RespMessage: err.Error(),
-			State:   "failed",
+			State:       "failed",
 		}, nil
 	}
 
 	return &pb.FreezeTraceResponse{
-		Success: true,
+		Success:     true,
 		RespMessage: "Freeze initiated",
-		State:   "preparing",
+		State:       "preparing",
 	}, nil
 }
 
@@ -245,13 +271,13 @@ func (s *ControlPlaneServer) ReleaseTrace(ctx context.Context, req *pb.ReleaseTr
 	err := s.freezeCoordinator.ReleaseFreeze(req.TraceId)
 	if err != nil {
 		return &pb.ReleaseTraceResponse{
-			Success: false,
+			Success:     false,
 			RespMessage: err.Error(),
 		}, nil
 	}
 
 	return &pb.ReleaseTraceResponse{
-		Success: true,
+		Success:     true,
 		RespMessage: "Trace released",
 	}, nil
 }
@@ -299,21 +325,25 @@ func main() {
 
 	// Initialize Control Plane Server
 	controlplane := NewControlPlaneServer()
-	
+
 	// Initialize Freeze Coordinator
 	freezeCoordinator := NewFreezeCoordinator(controlplane)
 	controlplane.freezeCoordinator = freezeCoordinator
-	
+
 	// Initialize Trace Monitor
 	traceMonitor := NewTraceMonitor(controlplane)
 	controlplane.traceMonitor = traceMonitor
-	
+
 	// Initialize OTel Collector integration
-otelCollector, err := NewOTelCollector(traceMonitor)
+	otelCollector, err := NewOTelCollector(traceMonitor)
 	if err != nil {
 		log.Fatalf("❌ Failed to initialize OTelCollector: %v", err)
 	}
 	log.Println("✅ OTel trace receiver initialized")
+
+	//start http server for wasm agent
+	go startHttpServer(freezeCoordinator)
+
 	// Start Trace Monitor
 	go traceMonitor.Start()
 

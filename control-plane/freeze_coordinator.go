@@ -30,14 +30,16 @@ type TraceFreeze struct {
 }
 
 type FreezeCoordinator struct {
-	mu           sync.RWMutex
-	frozenTraces map[string]bool
-	controlplane *ControlPlaneServer
+	mu               sync.RWMutex
+	frozenTraces     map[string]bool
+	releaseOverrides map[string]string
+	controlplane     *ControlPlaneServer
 }
 
 func NewFreezeCoordinator(cp *ControlPlaneServer) *FreezeCoordinator {
 	fc := &FreezeCoordinator{
 		frozenTraces: make(map[string]bool),
+		releaseOverrides: make(map[string]string),
 		controlplane: cp,
 	}
 	return fc
@@ -59,12 +61,15 @@ func (fc *FreezeCoordinator) InitiateFreeze(traceID string, services []string, b
 	return nil
 }
 
-func (fc *FreezeCoordinator) ReleaseFreeze(traceID string) error {
+func (fc *FreezeCoordinator) ReleaseFreeze(traceID string,override string) error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
 	if _, exists := fc.frozenTraces[traceID]; exists {
 		delete(fc.frozenTraces, traceID)
+		if override!=""{
+			fc.releaseOverrides[traceID]=override
+		}
 		log.Printf("[FreezeCoordinator] 🟢 RELEASED Trace ID: %s", traceID)
 		fc.controlplane.BroadcastFreezeEvent(traceID, "released")
 	}
@@ -101,4 +106,14 @@ func (fc *FreezeCoordinator) GetFreezeStatus(id string) (*TraceFreeze, error) {
 		}, nil
 	}
 	return nil, fmt.Errorf("trace not found")
+}
+
+func(fc *FreezeCoordinator) PopOverride(traceID string)string{
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	val:=fc.releaseOverrides[traceID]
+	if val!=""{
+		delete(fc.releaseOverrides,traceID)
+	}
+	return val
 }

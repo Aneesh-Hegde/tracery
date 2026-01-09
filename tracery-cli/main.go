@@ -97,11 +97,22 @@ func main() {
 			listFreezes(ctx, client)
 
 		case "release":
-			if len(os.Args) != 5 || os.Args[3] != "--trace" {
-				fmt.Println("Usage: dcdot-cli freeze release --trace <id>")
+			if len(os.Args) < 5 {
+				fmt.Println("Usage: dcdot-cli freeze release --trace <id> [--override-body <json>]")
 				os.Exit(1)
 			}
-			releaseTrace(ctx, client, os.Args[4])
+			traceID := ""
+			overrideBody := ""
+
+			for i := 3; i < len(os.Args); i++ {
+				if os.Args[i] == "--trace" && i+1 < len(os.Args) {
+					traceID = os.Args[i+1]
+				}
+				if os.Args[i] == "--override-body" && i+1 < len(os.Args) {
+					overrideBody = os.Args[i+1]
+				}
+			}
+			releaseTrace(ctx, client, traceID, overrideBody)
 
 		default:
 			fmt.Printf("Unknown freeze subcommand: %s\n", os.Args[2])
@@ -232,8 +243,8 @@ func freezeTrace(ctx context.Context, client pb.ControlPlaneClient, traceID stri
 	}
 }
 
-func releaseTrace(ctx context.Context, client pb.ControlPlaneClient, traceID string) {
-	resp, err := client.ReleaseTrace(ctx, &pb.ReleaseTraceRequest{TraceId: traceID})
+func releaseTrace(ctx context.Context, client pb.ControlPlaneClient, traceID string, body string) {
+	resp, err := client.ReleaseTrace(ctx, &pb.ReleaseTraceRequest{TraceId: traceID, OverrideBody: body})
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}

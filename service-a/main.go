@@ -25,11 +25,13 @@ import (
 )
 
 var tracer trace.Tracer
+
 type ServiceBResponse struct {
-    OrderID       string `json:"order_id"`
-    ProcessedAt   string `json:"processed_at"`
-    PaymentStatus string `json:"payment_status"`
+	OrderID       string `json:"order_id"`
+	ProcessedAt   string `json:"processed_at"`
+	PaymentStatus string `json:"payment_status"`
 }
+
 func initTracer() func() {
 	ctx := context.Background()
 

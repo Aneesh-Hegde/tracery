@@ -19,7 +19,8 @@ import (
 )
 
 type FreezeResponse struct {
-	Action string `json:"action"` //tell the action to take i.e to freeze or allow
+	Action       string `json:"action"` //tell the action to take i.e to freeze or allow
+	OverrideBody string `json:"override_body,omitempty"`
 }
 
 func startHttpServer(fc *FreezeCoordinator, cp *ControlPlaneServer) {
@@ -33,7 +34,8 @@ func startHttpServer(fc *FreezeCoordinator, cp *ControlPlaneServer) {
 		if fc.IsTraceFrozen(traceID) {
 			json.NewEncoder(w).Encode(FreezeResponse{Action: "freeze"})
 		} else {
-			json.NewEncoder(w).Encode(FreezeResponse{Action: "allow"})
+			override := fc.PopOverride(traceID)
+			json.NewEncoder(w).Encode(FreezeResponse{Action: "allow", OverrideBody: override})
 		}
 	})
 
@@ -294,7 +296,7 @@ func (s *ControlPlaneServer) FreezeTrace(ctx context.Context, req *pb.FreezeTrac
 func (s *ControlPlaneServer) ReleaseTrace(ctx context.Context, req *pb.ReleaseTraceRequest) (*pb.ReleaseTraceResponse, error) {
 	log.Printf("[ControlPlane] Manual release requested for trace %s", req.TraceId)
 
-	err := s.freezeCoordinator.ReleaseFreeze(req.TraceId)
+	err := s.freezeCoordinator.ReleaseFreeze(req.TraceId, req.OverrideBody)
 	if err != nil {
 		return &pb.ReleaseTraceResponse{
 			Success:     false,

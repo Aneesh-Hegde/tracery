@@ -87,6 +87,7 @@ message GetFreezeTraceResponse{
 
 message ReleaseTraceRequest{
   string traceId=1;
+  string override_body = 2;
 }
 
 message ReleaseTraceResponse{

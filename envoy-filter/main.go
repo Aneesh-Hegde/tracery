@@ -1,10 +1,10 @@
 package main
 
 import (
-	"strings"
-
+	"github.com/buger/jsonparser"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
+	"strings"
 )
 
 func main() {}
@@ -14,6 +14,10 @@ func init() {
 }
 
 type vmContext struct{ types.DefaultVMContext }
+type ControlPlaneResponse struct {
+	Action       string `json:"action"`
+	OverrideBody string `json:"override_body"`
+}
 
 func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
 	return &pluginContext{}
@@ -39,7 +43,8 @@ func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) t
 	if ctx.traceID == "" {
 		return types.ActionContinue
 	}
-
+	//for request body mutating
+	proxywasm.RemoveHttpRequestHeader("content-length")
 	// Cache metadata early
 	ctx.method, _ = proxywasm.GetHttpRequestHeader(":method")
 	ctx.path, _ = proxywasm.GetHttpRequestHeader(":path")
@@ -99,9 +104,13 @@ func (ctx *httpContext) OnCheckResponse(numHeaders int, bodySize int, numTrailer
 		return
 	}
 
-	responseStr := string(body)
+	action, err := jsonparser.GetString(body, "action")
+	if err != nil {
+		proxywasm.ResumeHttpRequest()
+		return
+	}
 
-	if strings.Contains(responseStr, "freeze") {
+	if action == "freeze" {
 		proxywasm.LogInfof("FREEZING Trace: %s", ctx.traceID)
 
 		if !ctx.snapshotSent {
@@ -113,6 +122,25 @@ func (ctx *httpContext) OnCheckResponse(numHeaders int, bodySize int, numTrailer
 
 	} else {
 		proxywasm.LogInfof("UNFREEZING Trace: %s", ctx.traceID)
+		
+		currentBody, _ := proxywasm.GetHttpRequestBody(0, 1024*1024)
+		if currentBody == nil {
+			currentBody = []byte{}
+		}
+
+		overrideBody, err := jsonparser.GetString(body, "override_body")
+		
+		if err == nil && overrideBody != "" {
+			proxywasm.LogInfof("✏️ MUTATING BODY: %s", overrideBody)
+			
+			currentBody = []byte(overrideBody)
+			
+			proxywasm.ReplaceHttpRequestBody(currentBody)
+		}
+
+		newLen := len(currentBody)
+		proxywasm.ReplaceHttpRequestHeader("content-length", itoa(newLen))
+
 		proxywasm.ResumeHttpRequest()
 	}
 }
@@ -166,4 +194,20 @@ func (ctx *httpContext) extractTraceID() string {
 		return val[3:35]
 	}
 	return ""
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b [20]byte
+	bp := len(b) - 1
+	for i >= 10 || i < 0 {
+		q := i / 10
+		b[bp] = byte('0' + i - q*10)
+		bp--
+		i = q
+	}
+	b[bp] = byte('0' + i)
+	return string(b[bp:])
 }

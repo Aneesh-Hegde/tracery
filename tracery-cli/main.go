@@ -52,11 +52,11 @@ func main() {
 		watchTraces(ctx, client)
 
 	case "get-snapshot":
-		if len(os.Args) < 3 {
-			fmt.Println("Usage: dcdot-cli get-snapshot <trace-id>")
+		if len(os.Args) < 4 || os.Args[2] != "--trace" {
+			fmt.Println("Usage: tracery-cli get-snapshot --trace <trace-id>")
 			os.Exit(1)
 		}
-		getSnapshot(ctx, client, os.Args[2])
+		getSnapshot(ctx, client, os.Args[3])
 
 	case "freeze":
 		if len(os.Args) < 3 {
@@ -128,6 +128,7 @@ func printUsage() {
 	fmt.Println("  freeze status --trace <id>")
 	fmt.Println("  freeze list")
 	fmt.Println("  freeze release --trace <id>")
+	fmt.Println("  get-snapshot --trace <id>")
 }
 
 // ---------------------------------------------------------------------
@@ -209,18 +210,6 @@ func watchTraces(ctx context.Context, client pb.ControlPlaneClient) {
 	}
 }
 
-func getSnapshot(ctx context.Context, client pb.ControlPlaneClient, traceID string) {
-	resp, err := client.GetSnapshot(ctx, &pb.GetSnapshotRequest{TraceId: traceID})
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-	if resp.Success {
-		fmt.Println(resp.SnapshotData)
-	} else {
-		fmt.Printf("%s\n", resp.RespMessage)
-	}
-}
-
 func freezeTrace(ctx context.Context, client pb.ControlPlaneClient, traceID string, services []string) {
 	req := &pb.FreezeTraceRequest{
 		TraceId:  traceID,
@@ -288,4 +277,27 @@ func listFreezes(ctx context.Context, client pb.ControlPlaneClient) {
 		fmt.Printf("   Services : %s\n", strings.Join(f.Services, ", "))
 		fmt.Println()
 	}
+}
+
+func getSnapshot(ctx context.Context, client pb.ControlPlaneClient, traceID string) {
+	resp, err := client.GetSnapshot(ctx, &pb.GetSnapshotRequest{TraceId: traceID})
+	if err != nil {
+		log.Fatalf("Error communicating with Control Plane: %v", err)
+	}
+
+	if !resp.Success {
+		fmt.Printf("❌ %s\n", resp.RespMessage)
+		return
+	}
+
+	snap := resp.SnapshotData
+	fmt.Println("📸 SNAPSHOT DATA CAPTURED")
+	fmt.Println("==================================================")
+	fmt.Printf("Trace ID:    %s\n", snap.TraceId)
+	fmt.Printf("Service:     %s\n", snap.ServiceName)
+	fmt.Printf("Method:      %s\n", snap.Method)
+	fmt.Println("--------------------------------------------------")
+	fmt.Println("📦 BODY PAYLOAD:")
+	fmt.Println(snap.Body)
+	fmt.Println("==================================================")
 }

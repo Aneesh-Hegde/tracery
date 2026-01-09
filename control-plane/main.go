@@ -22,7 +22,7 @@ type FreezeResponse struct {
 	Action string `json:"action"` //tell the action to take i.e to freeze or allow
 }
 
-func startHttpServer(fc *FreezeCoordinator) {
+func startHttpServer(fc *FreezeCoordinator, cp *ControlPlaneServer) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/check", func(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +36,30 @@ func startHttpServer(fc *FreezeCoordinator) {
 			json.NewEncoder(w).Encode(FreezeResponse{Action: "allow"})
 		}
 	})
+
+	mux.HandleFunc("/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var snap pb.SnapshotData
+		// Decode JSON from WASM
+		if err := json.NewDecoder(r.Body).Decode(&snap); err != nil {
+			log.Printf("❌ Failed to decode snapshot: %v", err)
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+
+		// Store in memory
+		cp.mu.Lock()
+		cp.snapshots[snap.TraceId] = &snap
+		cp.mu.Unlock()
+
+		log.Printf("📸 Captured Snapshot for Trace: %s (Body: %d bytes)", snap.TraceId, len(snap.Body))
+		w.WriteHeader(http.StatusOK)
+	})
+
 	log.Println("🌍 Universal HTTP Interface listening on :8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Printf("HTTP Server failed: %v", err)
@@ -58,12 +82,14 @@ type ControlPlaneServer struct {
 	traceListeners    []chan *pb.TraceEvent
 	freezeCoordinator *FreezeCoordinator
 	traceMonitor      *TraceMonitor
+	snapshots         map[string]*pb.SnapshotData
 }
 
 func NewControlPlaneServer() *ControlPlaneServer {
 	return &ControlPlaneServer{
 		breakPoints:    make(map[string]*BreakPoint),
 		traceListeners: make([]chan *pb.TraceEvent, 0),
+		snapshots:      make(map[string]*pb.SnapshotData),
 	}
 }
 
@@ -320,6 +346,23 @@ func (s *ControlPlaneServer) ListActiveFreezes(ctx context.Context, req *pb.List
 	}, nil
 }
 
+func (s *ControlPlaneServer) GetSnapshot(ctx context.Context, req *pb.GetSnapshotRequest) (*pb.GetSnapshotResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if snap, exists := s.snapshots[req.TraceId]; exists {
+		return &pb.GetSnapshotResponse{
+			Success:      true,
+			SnapshotData: snap,
+		}, nil
+	}
+
+	return &pb.GetSnapshotResponse{
+		Success:     false,
+		RespMessage: "Snapshot not found (trace might not be frozen or captured yet)",
+	}, nil
+}
+
 func main() {
 	log.Println("🚀 Starting Tracery Control Plane...")
 
@@ -342,7 +385,7 @@ func main() {
 	log.Println("✅ OTel trace receiver initialized")
 
 	//start http server for wasm agent
-	go startHttpServer(freezeCoordinator)
+	go startHttpServer(freezeCoordinator, controlplane)
 
 	// Start Trace Monitor
 	go traceMonitor.Start()

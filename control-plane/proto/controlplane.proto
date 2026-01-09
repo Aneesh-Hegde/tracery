@@ -8,12 +8,12 @@ service ControlPlane{
   rpc RegisterBreakpoint(RegisterBreakPointRequest) returns (RegisterBreakPointResponse);
   rpc ListBreakpoints(ListBreakpointsRequest) returns (ListBreakpointsResponse);
   rpc DeleteBreakPoint(DeleteBreakPointRequest) returns (DeleteBreakPointResponse);
-  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
   rpc StreamTraces(StreamTracesRequest) returns (stream TraceEvent);
   rpc FreezeTrace(FreezeTraceRequest) returns (FreezeTraceResponse);
   rpc GetFreezeStatus(GetFreezeStatusRequest) returns (GetFreezeStatusResponse);
   rpc ReleaseTrace(ReleaseTraceRequest) returns (ReleaseTraceResponse);
   rpc ListActiveFreezes(ListActiveFreezesRequest) returns (ListActiveFreezesResponse);
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
 }
 
 message Breakpoint{
@@ -50,17 +50,6 @@ message DeleteBreakPointRequest{
 message DeleteBreakPointResponse{
   bool success=1;
   string resp_message=2;
-}
-
-message GetSnapshotRequest{
-  string trace_id=1;
-}
-
-message GetSnapshotResponse{
-  string trace_id=1;
-  string snapshot_data=2; //Serialized JSON
-  bool success=3;
-  string resp_message=4;
 }
 
 message StreamTracesRequest{}
@@ -127,4 +116,24 @@ message FreezeInfo{
 message ListActiveFreezesRequest{}
 message ListActiveFreezesResponse{
   repeated FreezeInfo freezes=1;
+}
+
+message GetSnapshotRequest {
+  string trace_id = 1;
+}
+
+message GetSnapshotResponse {
+  bool success = 1;
+  string resp_message = 2;
+  SnapshotData snapshot_data = 3;
+}
+
+message SnapshotData {
+  string trace_id = 1;
+  string service_name = 2; // e.g., "service-a" (if available via headers)
+  string method = 3;       // GET, POST
+  string path = 4;         // /order
+  map<string, string> headers = 5;
+  string body = 6;         // The actual JSON payload
+  int64 timestamp = 7;
 }

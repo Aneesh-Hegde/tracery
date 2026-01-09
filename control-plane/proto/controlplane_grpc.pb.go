@@ -22,12 +22,12 @@ const (
 	ControlPlane_RegisterBreakpoint_FullMethodName = "/controlplane.ControlPlane/RegisterBreakpoint"
 	ControlPlane_ListBreakpoints_FullMethodName    = "/controlplane.ControlPlane/ListBreakpoints"
 	ControlPlane_DeleteBreakPoint_FullMethodName   = "/controlplane.ControlPlane/DeleteBreakPoint"
-	ControlPlane_GetSnapshot_FullMethodName        = "/controlplane.ControlPlane/GetSnapshot"
 	ControlPlane_StreamTraces_FullMethodName       = "/controlplane.ControlPlane/StreamTraces"
 	ControlPlane_FreezeTrace_FullMethodName        = "/controlplane.ControlPlane/FreezeTrace"
 	ControlPlane_GetFreezeStatus_FullMethodName    = "/controlplane.ControlPlane/GetFreezeStatus"
 	ControlPlane_ReleaseTrace_FullMethodName       = "/controlplane.ControlPlane/ReleaseTrace"
 	ControlPlane_ListActiveFreezes_FullMethodName  = "/controlplane.ControlPlane/ListActiveFreezes"
+	ControlPlane_GetSnapshot_FullMethodName        = "/controlplane.ControlPlane/GetSnapshot"
 )
 
 // ControlPlaneClient is the client API for ControlPlane service.
@@ -37,12 +37,12 @@ type ControlPlaneClient interface {
 	RegisterBreakpoint(ctx context.Context, in *RegisterBreakPointRequest, opts ...grpc.CallOption) (*RegisterBreakPointResponse, error)
 	ListBreakpoints(ctx context.Context, in *ListBreakpointsRequest, opts ...grpc.CallOption) (*ListBreakpointsResponse, error)
 	DeleteBreakPoint(ctx context.Context, in *DeleteBreakPointRequest, opts ...grpc.CallOption) (*DeleteBreakPointResponse, error)
-	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
 	StreamTraces(ctx context.Context, in *StreamTracesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TraceEvent], error)
 	FreezeTrace(ctx context.Context, in *FreezeTraceRequest, opts ...grpc.CallOption) (*FreezeTraceResponse, error)
 	GetFreezeStatus(ctx context.Context, in *GetFreezeStatusRequest, opts ...grpc.CallOption) (*GetFreezeStatusResponse, error)
 	ReleaseTrace(ctx context.Context, in *ReleaseTraceRequest, opts ...grpc.CallOption) (*ReleaseTraceResponse, error)
 	ListActiveFreezes(ctx context.Context, in *ListActiveFreezesRequest, opts ...grpc.CallOption) (*ListActiveFreezesResponse, error)
+	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
 }
 
 type controlPlaneClient struct {
@@ -77,16 +77,6 @@ func (c *controlPlaneClient) DeleteBreakPoint(ctx context.Context, in *DeleteBre
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DeleteBreakPointResponse)
 	err := c.cc.Invoke(ctx, ControlPlane_DeleteBreakPoint_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *controlPlaneClient) GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetSnapshotResponse)
-	err := c.cc.Invoke(ctx, ControlPlane_GetSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +142,16 @@ func (c *controlPlaneClient) ListActiveFreezes(ctx context.Context, in *ListActi
 	return out, nil
 }
 
+func (c *controlPlaneClient) GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSnapshotResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_GetSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ControlPlaneServer is the server API for ControlPlane service.
 // All implementations must embed UnimplementedControlPlaneServer
 // for forward compatibility.
@@ -159,12 +159,12 @@ type ControlPlaneServer interface {
 	RegisterBreakpoint(context.Context, *RegisterBreakPointRequest) (*RegisterBreakPointResponse, error)
 	ListBreakpoints(context.Context, *ListBreakpointsRequest) (*ListBreakpointsResponse, error)
 	DeleteBreakPoint(context.Context, *DeleteBreakPointRequest) (*DeleteBreakPointResponse, error)
-	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
 	StreamTraces(*StreamTracesRequest, grpc.ServerStreamingServer[TraceEvent]) error
 	FreezeTrace(context.Context, *FreezeTraceRequest) (*FreezeTraceResponse, error)
 	GetFreezeStatus(context.Context, *GetFreezeStatusRequest) (*GetFreezeStatusResponse, error)
 	ReleaseTrace(context.Context, *ReleaseTraceRequest) (*ReleaseTraceResponse, error)
 	ListActiveFreezes(context.Context, *ListActiveFreezesRequest) (*ListActiveFreezesResponse, error)
+	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
 	mustEmbedUnimplementedControlPlaneServer()
 }
 
@@ -184,9 +184,6 @@ func (UnimplementedControlPlaneServer) ListBreakpoints(context.Context, *ListBre
 func (UnimplementedControlPlaneServer) DeleteBreakPoint(context.Context, *DeleteBreakPointRequest) (*DeleteBreakPointResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteBreakPoint not implemented")
 }
-func (UnimplementedControlPlaneServer) GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetSnapshot not implemented")
-}
 func (UnimplementedControlPlaneServer) StreamTraces(*StreamTracesRequest, grpc.ServerStreamingServer[TraceEvent]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamTraces not implemented")
 }
@@ -201,6 +198,9 @@ func (UnimplementedControlPlaneServer) ReleaseTrace(context.Context, *ReleaseTra
 }
 func (UnimplementedControlPlaneServer) ListActiveFreezes(context.Context, *ListActiveFreezesRequest) (*ListActiveFreezesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListActiveFreezes not implemented")
+}
+func (UnimplementedControlPlaneServer) GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSnapshot not implemented")
 }
 func (UnimplementedControlPlaneServer) mustEmbedUnimplementedControlPlaneServer() {}
 func (UnimplementedControlPlaneServer) testEmbeddedByValue()                      {}
@@ -273,24 +273,6 @@ func _ControlPlane_DeleteBreakPoint_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ControlPlaneServer).DeleteBreakPoint(ctx, req.(*DeleteBreakPointRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _ControlPlane_GetSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetSnapshotRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ControlPlaneServer).GetSnapshot(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ControlPlane_GetSnapshot_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ControlPlaneServer).GetSnapshot(ctx, req.(*GetSnapshotRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -378,6 +360,24 @@ func _ControlPlane_ListActiveFreezes_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlPlane_GetSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).GetSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_GetSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).GetSnapshot(ctx, req.(*GetSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ControlPlane_ServiceDesc is the grpc.ServiceDesc for ControlPlane service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -398,10 +398,6 @@ var ControlPlane_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ControlPlane_DeleteBreakPoint_Handler,
 		},
 		{
-			MethodName: "GetSnapshot",
-			Handler:    _ControlPlane_GetSnapshot_Handler,
-		},
-		{
 			MethodName: "FreezeTrace",
 			Handler:    _ControlPlane_FreezeTrace_Handler,
 		},
@@ -416,6 +412,10 @@ var ControlPlane_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListActiveFreezes",
 			Handler:    _ControlPlane_ListActiveFreezes_Handler,
+		},
+		{
+			MethodName: "GetSnapshot",
+			Handler:    _ControlPlane_GetSnapshot_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

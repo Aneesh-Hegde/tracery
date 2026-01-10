@@ -1,10 +1,11 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/buger/jsonparser"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
-	"strings"
 )
 
 func main() {}
@@ -14,10 +15,6 @@ func init() {
 }
 
 type vmContext struct{ types.DefaultVMContext }
-type ControlPlaneResponse struct {
-	Action       string `json:"action"`
-	OverrideBody string `json:"override_body"`
-}
 
 func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
 	return &pluginContext{}
@@ -36,21 +33,34 @@ type httpContext struct {
 	method       string
 	path         string
 	authority    string
+	
+	// Cache headers to reuse them during the freeze loop
+	cachedHeaders [][2]string
 }
 
 func (ctx *httpContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
+	// 1. Cache headers immediately. 
+	// We cannot access them later during OnCheckResponse (the freeze loop).
+	headers, err := proxywasm.GetHttpRequestHeaders()
+	if err == nil {
+		ctx.cachedHeaders = headers
+	} else {
+		proxywasm.LogErrorf("failed to get request headers: %v", err)
+	}
+
 	ctx.traceID = ctx.extractTraceID()
 	if ctx.traceID == "" {
 		return types.ActionContinue
 	}
-	//for request body mutating
+
+	// Remove Content-Length to allow body mutation later
 	proxywasm.RemoveHttpRequestHeader("content-length")
-	// Cache metadata early
+	
 	ctx.method, _ = proxywasm.GetHttpRequestHeader(":method")
 	ctx.path, _ = proxywasm.GetHttpRequestHeader(":path")
 	ctx.authority, _ = proxywasm.GetHttpRequestHeader(":authority")
 
-	// If no body (GET), freeze now
+	// If no body (GET request), check freeze logic immediately
 	if endOfStream {
 		if ctx.callControlPlane() {
 			return types.ActionPause
@@ -65,12 +75,12 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 		return types.ActionContinue
 	}
 
-	// Force buffering until full body is received
+	// Buffer until full body is received
 	if !endOfStream {
 		return types.ActionPause
 	}
 
-	// Trigger freeze check with full body
+	// Trigger freeze check
 	if ctx.callControlPlane() {
 		return types.ActionPause
 	}
@@ -79,16 +89,44 @@ func (ctx *httpContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.
 }
 
 func (ctx *httpContext) callControlPlane() bool {
-	_, err := proxywasm.DispatchHttpCall(
-		"control_plane",
-		[][2]string{
-			{":method", "GET"},
-			{":path", "/check?trace_id=" + ctx.traceID},
-			{":authority", "control-plane"},
-		},
-		nil, nil, 5000, ctx.OnCheckResponse,
-	)
+	// 1. Get the Request Body
+	// We read up to 1MB (industry standard safety limit for inspection)
+	bodyBytes, err := proxywasm.GetHttpRequestBody(0, 1024*1024)
+	if err != nil {
+		bodyBytes = []byte("{}") // Empty JSON if no body
+	}
 
+	// 2. Prepare Headers for the /check call
+	// We move metadata (TraceID, Service) to Headers so the Body can be just the payload
+	cpHeaders := [][2]string{
+		{":method", "POST"}, // ✅ Changed to POST
+		{":path", "/check"},
+		{":authority", "control-plane"},
+		{"x-trace-id", ctx.traceID},
+		{"x-service-name", ctx.authority},
+		{"x-endpoint", ctx.path},
+		{"content-type", "application/json"},
+	}
+
+	// 3. Forward Original Headers (for header conditions)
+	if len(ctx.cachedHeaders) > 0 {
+		for _, h := range ctx.cachedHeaders {
+			key := strings.ToLower(h[0])
+			if !strings.HasPrefix(key, ":") {
+				// Prefix them so Control Plane knows they are from the user
+				cpHeaders = append(cpHeaders, [2]string{"x-orig-" + key, h[1]})
+			}
+		}
+	}
+
+	// 4. Dispatch with BODY
+	_, err = proxywasm.DispatchHttpCall(
+		"control_plane",
+		cpHeaders,
+		bodyBytes, // ✅ Sending the actual user body!
+		nil, 5000, ctx.OnCheckResponse,
+	)
+	
 	if err != nil {
 		proxywasm.LogCriticalf("Dispatch failed: %v", err)
 		proxywasm.ResumeHttpRequest()
@@ -118,28 +156,24 @@ func (ctx *httpContext) OnCheckResponse(numHeaders int, bodySize int, numTrailer
 			ctx.snapshotSent = true
 		}
 
+		// Recursively check (Infinite Loop / Polling) until released
 		ctx.callControlPlane()
 
 	} else {
 		proxywasm.LogInfof("UNFREEZING Trace: %s", ctx.traceID)
-		
-		currentBody, _ := proxywasm.GetHttpRequestBody(0, 1024*1024)
-		if currentBody == nil {
-			currentBody = []byte{}
-		}
 
+		// Check for Body Mutation
 		overrideBody, err := jsonparser.GetString(body, "override_body")
-		
 		if err == nil && overrideBody != "" {
 			proxywasm.LogInfof("✏️ MUTATING BODY: %s", overrideBody)
-			
-			currentBody = []byte(overrideBody)
-			
-			proxywasm.ReplaceHttpRequestBody(currentBody)
+			proxywasm.ReplaceHttpRequestBody([]byte(overrideBody))
 		}
-
-		newLen := len(currentBody)
-		proxywasm.ReplaceHttpRequestHeader("content-length", itoa(newLen))
+		
+		// Recalculate content-length if needed
+		currentBody, _ := proxywasm.GetHttpRequestBody(0, 1024*1024)
+		if currentBody != nil {
+			proxywasm.ReplaceHttpRequestHeader("content-length", itoa(len(currentBody)))
+		}
 
 		proxywasm.ResumeHttpRequest()
 	}
@@ -155,15 +189,9 @@ func (ctx *httpContext) captureAndSendSnapshot() {
 	safeBody := strings.ReplaceAll(bodyStr, "\"", "\\\"")
 	safeBody = strings.ReplaceAll(safeBody, "\n", " ")
 
-	if ctx.method == "" {
-		ctx.method = "UNKNOWN"
-	}
-	if ctx.path == "" {
-		ctx.path = "/"
-	}
-	if ctx.authority == "" {
-		ctx.authority = "unknown"
-	}
+	if ctx.method == "" { ctx.method = "UNKNOWN" }
+	if ctx.path == "" { ctx.path = "/" }
+	if ctx.authority == "" { ctx.authority = "unknown" }
 
 	var sb strings.Builder
 	sb.WriteString(`{`)
@@ -173,8 +201,6 @@ func (ctx *httpContext) captureAndSendSnapshot() {
 	sb.WriteString(`"body":"` + safeBody + `"`)
 	sb.WriteString(`}`)
 
-	payload := sb.String()
-
 	proxywasm.DispatchHttpCall(
 		"control_plane",
 		[][2]string{
@@ -183,7 +209,7 @@ func (ctx *httpContext) captureAndSendSnapshot() {
 			{":authority", "control-plane"},
 			{"content-type", "application/json"},
 		},
-		[]byte(payload),
+		[]byte(sb.String()),
 		nil, 5000, func(n, b, t int) {},
 	)
 	proxywasm.LogInfo("Snapshot sent!")
@@ -197,9 +223,7 @@ func (ctx *httpContext) extractTraceID() string {
 }
 
 func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
+	if i == 0 { return "0" }
 	var b [20]byte
 	bp := len(b) - 1
 	for i >= 10 || i < 0 {

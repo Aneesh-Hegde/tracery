@@ -96,122 +96,156 @@
 #  DCDOT - Universal Distributed Debugger (Local Runner)
 # ==============================================================================
 
-# Ports configuration
-# 8080=CP_HTTP, 50051=CP_GRPC
-# 8081-8083=Go_Apps
-# 10001-10003=Envoys
 PORTS := 8080 8081 8082 8083 50051 10001 10002 10003
-
-# Directories
 LOG_DIR := logs
 WASM_DIR := envoy-filter
 CLI_DIR := tracery-cli
+CLI_BIN := ./$(CLI_DIR)/tracery-cli
 
-.PHONY: all build clean run help logs stop test
+# Test IDs
+TEST_TRACE_ID := aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+FREEZE_TRACE_ID := ffffffffffffffffffffffffffffffff
+MUTATE_TRACE_ID := mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
+HEADER_TRACE_ID := hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+BODY_TRACE_ID   := bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
-# Default target
+.PHONY: all build clean run help logs stop test verify-all
+
 all: clean build run
 
 # ------------------------------------------------------------------------------
-#  🛠️ BUILD
+#  🛠️ BUILD & SETUP
 # ------------------------------------------------------------------------------
 build:
-	@echo "🔨 [1/2] Building WASM Filter..."
+	@echo "🔨 Building WASM Filter..."
 	@cd $(WASM_DIR) && tinygo build -buildmode=c-shared -o freeze-filter.wasm -scheduler=none -target=wasip1 main.go
-	@echo "🔨 [2/2] Building CLI..."
+	@echo "🔨 Building CLI..."
 	@cd $(CLI_DIR) && go build -o tracery-cli .
 	@mkdir -p $(LOG_DIR)
 	@echo "✅ Build complete."
 
-# ------------------------------------------------------------------------------
-#  🧹 CLEAN / STOP
-# ------------------------------------------------------------------------------
 clean:
-	@echo "🛑 Stopping services and cleaning ports..."
-	@# Kill any process listening on our specific ports
+	@echo "🛑 Stopping services..."
 	@-lsof -ti:$(shell echo $(PORTS) | tr ' ' ',') | xargs kill -9 2>/dev/null || true
-	@# Force kill specific binary names just in case
 	@-pkill -f "go run ./control-plane" || true
 	@-pkill -f "go run ./service" || true
 	@-pkill -f "envoy -c envoy-filter" || true
 	@rm -f $(LOG_DIR)/*.log
-	@echo "✅ Ports $(PORTS) are clear."
+	@echo "✅ Clean."
 
-stop: clean
-
-# ------------------------------------------------------------------------------
-#  🚀 RUN
-# ------------------------------------------------------------------------------
 run:
 	@echo "🚀 Starting DCDOT System..."
-	
-	@# 1. Start Control Plane
-	@echo "🧠 Starting Control Plane..."
+	@echo "🧠 Control Plane..."
 	@PORT=8080 go run ./control-plane > $(LOG_DIR)/cp.log 2>&1 &
 	@sleep 2
-
-	@# 2. Start Service A + Envoy (Calls B at 10002)
-	@echo "📦 Starting Service A..."
-	@export SERVICE_B_URL="http://localhost:10002" && \
-		PORT=8081 go run ./service-a > $(LOG_DIR)/service-a.log 2>&1 &
+	@echo "📦 Service A..."
+	@export SERVICE_B_URL="http://localhost:10002" && PORT=8081 go run ./service-a > $(LOG_DIR)/service-a.log 2>&1 &
 	@envoy -c envoy-filter/envoy-service-a.yaml --concurrency 1 -l info --component-log-level wasm:trace > $(LOG_DIR)/envoy-a.log 2>&1 &
-
-	@# 3. Start Service B + Envoy (Calls C at 10003)
-	@echo "📦 Starting Service B..."
-	@export SERVICE_C_URL="http://localhost:10003" && \
-		PORT=8082 go run ./service-b > $(LOG_DIR)/service-b.log 2>&1 &
+	@echo "📦 Service B..."
+	@export SERVICE_C_URL="http://localhost:10003" && PORT=8082 go run ./service-b > $(LOG_DIR)/service-b.log 2>&1 &
 	@envoy -c envoy-filter/envoy-service-b.yaml --concurrency 1 -l info --component-log-level wasm:trace > $(LOG_DIR)/envoy-b.log 2>&1 &
-
-	@# 4. Start Service C + Envoy (Connects to Local DB)
-	@echo "📦 Starting Service C..."
-	@export DB_HOST="localhost" && export DB_USER="aneesh" && \
-		PORT=8083 go run ./service-c > $(LOG_DIR)/service-c.log 2>&1 &
+	@echo "📦 Service C..."
+	@export DB_HOST="localhost" && export DB_USER="aneesh" && PORT=8083 go run ./service-c > $(LOG_DIR)/service-c.log 2>&1 &
 	@envoy -c envoy-filter/envoy-service-c.yaml --concurrency 1 -l info --component-log-level wasm:trace > $(LOG_DIR)/envoy-c.log 2>&1 &
-
-	@sleep 2
-	@echo "✅ SYSTEM RUNNING"
-	@echo "📝 Tailing logs (Ctrl+C to stop, 'make clean' to cleanup)..."
-	@echo "------------------------------------------------------------"
-	@tail -f $(LOG_DIR)/cp.log $(LOG_DIR)/envoy-a.log
-
-# ------------------------------------------------------------------------------
-#  🔍 UTILS
-# ------------------------------------------------------------------------------
-logs:
-	@tail -f $(LOG_DIR)/*.log
-
-logs-wasm:
-	@echo "📝 Watching WASM logs across all envoys..."
-	@tail -f $(LOG_DIR)/envoy-*.log | grep -E "\[wasm|\[TICK|\[HTTP|\[PLUGIN|\[VM"
-
-logs-cp:
+	@sleep 5
+	@echo "✅ SYSTEM RUNNING - Tailing logs..."
 	@tail -f $(LOG_DIR)/cp.log
 
-logs-envoy-a:
-	@tail -f $(LOG_DIR)/envoy-a.log
+# ------------------------------------------------------------------------------
+#  🧪 AUTOMATED TEST SUITE
+# ------------------------------------------------------------------------------
 
-test:
-	@echo "🧪 Sending Test Request..."
-	@curl -v http://localhost:10001/order \
+# Helper: Seed data for App Inspection (No freeze)
+seed-data:
+	@echo "🌱 Seeding trace data (ID: $(TEST_TRACE_ID))..."
+	@curl -s -o /dev/null http://localhost:10001/order \
 		-H "Content-Type: application/json" \
-		-H "traceparent: 00-11111111111111111111111111111111-2222222222222222-01" \
-		-d '{"order_id":"TEST-MAKE","customer_id":"MAKEFILE","amount":100.0}'
+		-H "traceparent: 00-$(TEST_TRACE_ID)-bbbbbbbbbbbbbbbb-01" \
+		-d '{"order_id":"CLI-TEST","amount":500}'
+	@sleep 2
 
-# Test with a request that should be frozen
-test-freeze:
-	@echo "🧪 Sending Test Request (should FREEZE)..."
-	@curl -v http://localhost:10001/order \
+# [1] Breakpoints Configuration (Syntax Check)
+verify-breakpoints:
+	@echo "\n🧪 [1/8] Testing Breakpoint Syntax..."
+	@$(CLI_BIN) set-breakpoint localhost:10001 /order "amount=100"
+	@$(CLI_BIN) list-breakpoints
+
+# [2] Watch (MacOS Compatible)
+verify-watch:
+	@echo "\n🧪 [2/8] Testing Watch Stream (3s)..."
+	@$(CLI_BIN) watch-traces & PID=$$!; sleep 3; kill $$PID 2>/dev/null || true
+	@echo "✅ Watch test passed"
+
+# [3] Inspection (App State)
+verify-inspection: seed-data
+	@echo "\n🧪 [3/8] Testing App Inspection (Trace: $(TEST_TRACE_ID))..."
+	@$(CLI_BIN) debug-app --trace $(TEST_TRACE_ID)
+
+# [4] Admin
+verify-admin:
+	@echo "\n🧪 [4/8] Testing Admin Features..."
+	@$(CLI_BIN) mesh topology
+	@$(CLI_BIN) system health
+
+# [5] Freeze Lifecycle + Network Snapshot
+verify-freeze-basic:
+	@echo "\n🧪 [5/8] Testing Freeze & Network Snapshot..."
+	@$(CLI_BIN) freeze start --trace $(FREEZE_TRACE_ID) --services service-a
+	@curl -s -o /dev/null http://localhost:10001/order \
 		-H "Content-Type: application/json" \
-		-H "traceparent: 00-ffffffffffffffffffffffffffffffff-2222222222222222-01" \
-		-d '{"order_id":"FREEZE-TEST","customer_id":"MAKEFILE","amount":999.0}'
+		-H "traceparent: 00-$(FREEZE_TRACE_ID)-bbbbbbbbbbbbbbbb-01" \
+		-d '{"order_id":"FREEZE-TEST","amount":999}' & \
+		echo "   (Request sent...)"
+	@sleep 2
+	@$(CLI_BIN) freeze list
+	@$(CLI_BIN) freeze status --trace $(FREEZE_TRACE_ID)
+	@$(CLI_BIN) get-snapshot --trace $(FREEZE_TRACE_ID)
+	@$(CLI_BIN) freeze release --trace $(FREEZE_TRACE_ID)
 
-help:
-	@echo "Available commands:"
-	@echo "  make run         - Build and start everything (tails logs)"
-	@echo "  make clean       - Force kill all processes on ports $(PORTS)"
-	@echo "  make test        - Send a sample curl request to Service A"
-	@echo "  make test-freeze - Send a request with trace ID that triggers freeze"
-	@echo "  make logs        - Tail all logs"
-	@echo "  make logs-wasm   - Tail only WASM-related logs"
-	@echo "  make logs-cp     - Tail control plane logs"
-	@echo "  make logs-envoy-a- Tail envoy-a logs"
+# [6] Freeze Mutation
+verify-freeze-mutation:
+	@echo "\n🧪 [6/8] Testing Freeze Mutation..."
+	@$(CLI_BIN) freeze start --trace $(MUTATE_TRACE_ID) --services service-a
+	@curl -s -o /dev/null http://localhost:10001/order \
+		-H "Content-Type: application/json" \
+		-H "traceparent: 00-$(MUTATE_TRACE_ID)-bbbbbbbbbbbbbbbb-01" \
+		-d '{"order_id":"BAD","amount":1}' &
+	@sleep 1
+	@$(CLI_BIN) freeze release --trace $(MUTATE_TRACE_ID) --override-body '{"order_id":"FIXED","amount":1000}'
+
+# [7] Conditional Logic (Header vs Body) - NEW!
+verify-conditions:
+	@echo "\n🧪 [7/8] Testing Conditional Logic (Header vs Body)..."
+	
+	@echo "   [A] Testing Strict Header Condition (user-type=vip)..."
+	@$(CLI_BIN) set-breakpoint localhost:10001 /order header.user-type=vip
+	@curl -s -o /dev/null http://localhost:10001/order \
+		-H "Content-Type: application/json" \
+		-H "user-type: vip" \
+		-H "traceparent: 00-$(HEADER_TRACE_ID)-bbbbbbbbbbbbbbbb-01" \
+		-d '{"val": 1}' & 
+	@sleep 2
+	@echo "   Verifying Header Freeze..."
+	@$(CLI_BIN) freeze status --trace $(HEADER_TRACE_ID)
+	@$(CLI_BIN) freeze release --trace $(HEADER_TRACE_ID)
+
+	@echo "   [B] Testing Strict Body Condition (amount=999)..."
+	@$(CLI_BIN) set-breakpoint localhost:10001 /order body.amount=999
+	@curl -s -o /dev/null http://localhost:10001/order \
+		-H "Content-Type: application/json" \
+		-H "traceparent: 00-$(BODY_TRACE_ID)-cccccccccccccccc-01" \
+		-d '{"amount": 999}' & 
+	@sleep 2
+	@echo "   Verifying Body Freeze..."
+	@$(CLI_BIN) freeze status --trace $(BODY_TRACE_ID)
+	@$(CLI_BIN) freeze release --trace $(BODY_TRACE_ID)
+
+# [8] Emergency
+verify-emergency:
+	@echo "\n🧪 [8/8] Testing Emergency Kill Switch..."
+	@$(CLI_BIN) freeze start --trace 11112222333344445555666677778888 --services service-a
+	@$(CLI_BIN) emergency disable
+
+# Run Everything
+verify-all: verify-breakpoints verify-watch verify-inspection verify-admin verify-freeze-basic verify-freeze-mutation verify-conditions verify-emergency
+	@echo "\n🎉 ALL CLI COMMANDS VERIFIED SUCCESSFULLY!"

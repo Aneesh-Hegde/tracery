@@ -33,16 +33,25 @@ type FreezeCoordinator struct {
 	mu               sync.RWMutex
 	frozenTraces     map[string]bool
 	releaseOverrides map[string]string
-	controlplane     *ControlPlaneServer
+	//Track traces that have been processed/released
+	releasedTraces map[string]bool
+	controlplane   *ControlPlaneServer
 }
 
 func NewFreezeCoordinator(cp *ControlPlaneServer) *FreezeCoordinator {
 	fc := &FreezeCoordinator{
-		frozenTraces: make(map[string]bool),
+		frozenTraces:     make(map[string]bool),
+		releasedTraces:   make(map[string]bool),
 		releaseOverrides: make(map[string]string),
-		controlplane: cp,
+		controlplane:     cp,
 	}
 	return fc
+}
+
+func (fc *FreezeCoordinator) IsTraceReleased(traceID string) bool {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.releasedTraces[traceID]
 }
 
 func (fc *FreezeCoordinator) IsTraceFrozen(traceID string) bool {
@@ -61,15 +70,16 @@ func (fc *FreezeCoordinator) InitiateFreeze(traceID string, services []string, b
 	return nil
 }
 
-func (fc *FreezeCoordinator) ReleaseFreeze(traceID string,override string) error {
+func (fc *FreezeCoordinator) ReleaseFreeze(traceID string, override string) error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
 	if _, exists := fc.frozenTraces[traceID]; exists {
 		delete(fc.frozenTraces, traceID)
-		if override!=""{
-			fc.releaseOverrides[traceID]=override
+		if override != "" {
+			fc.releaseOverrides[traceID] = override
 		}
+		fc.releasedTraces[traceID] = true
 		log.Printf("[FreezeCoordinator] 🟢 RELEASED Trace ID: %s", traceID)
 		fc.controlplane.BroadcastFreezeEvent(traceID, "released")
 	}
@@ -108,12 +118,25 @@ func (fc *FreezeCoordinator) GetFreezeStatus(id string) (*TraceFreeze, error) {
 	return nil, fmt.Errorf("trace not found")
 }
 
-func(fc *FreezeCoordinator) PopOverride(traceID string)string{
+func (fc *FreezeCoordinator) PopOverride(traceID string) string {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
-	val:=fc.releaseOverrides[traceID]
-	if val!=""{
-		delete(fc.releaseOverrides,traceID)
+	val := fc.releaseOverrides[traceID]
+	if val != "" {
+		delete(fc.releaseOverrides, traceID)
 	}
 	return val
+}
+
+func (fc *FreezeCoordinator) ReleaseAll() int {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+
+	count := len(fc.frozenTraces)
+
+	// Clear the map
+	fc.frozenTraces = make(map[string]bool)
+	fc.releaseOverrides = make(map[string]string)
+	fc.releasedTraces = make(map[string]bool)
+	return count
 }

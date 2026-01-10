@@ -29,6 +29,9 @@ const (
 	ControlPlane_ListActiveFreezes_FullMethodName  = "/controlplane.ControlPlane/ListActiveFreezes"
 	ControlPlane_GetSnapshot_FullMethodName        = "/controlplane.ControlPlane/GetSnapshot"
 	ControlPlane_GetAppSnapshot_FullMethodName     = "/controlplane.ControlPlane/GetAppSnapshot"
+	ControlPlane_EmergencyRelease_FullMethodName   = "/controlplane.ControlPlane/EmergencyRelease"
+	ControlPlane_GetSystemHealth_FullMethodName    = "/controlplane.ControlPlane/GetSystemHealth"
+	ControlPlane_GetTopology_FullMethodName        = "/controlplane.ControlPlane/GetTopology"
 )
 
 // ControlPlaneClient is the client API for ControlPlane service.
@@ -45,6 +48,9 @@ type ControlPlaneClient interface {
 	ListActiveFreezes(ctx context.Context, in *ListActiveFreezesRequest, opts ...grpc.CallOption) (*ListActiveFreezesResponse, error)
 	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
 	GetAppSnapshot(ctx context.Context, in *GetAppSnapshotRequest, opts ...grpc.CallOption) (*GetAppSnapshotResponse, error)
+	EmergencyRelease(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*EmergencyReleaseResponse, error)
+	GetSystemHealth(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemHealthResponse, error)
+	GetTopology(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TopologyResponse, error)
 }
 
 type controlPlaneClient struct {
@@ -164,6 +170,36 @@ func (c *controlPlaneClient) GetAppSnapshot(ctx context.Context, in *GetAppSnaps
 	return out, nil
 }
 
+func (c *controlPlaneClient) EmergencyRelease(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*EmergencyReleaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EmergencyReleaseResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_EmergencyRelease_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlPlaneClient) GetSystemHealth(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemHealthResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SystemHealthResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_GetSystemHealth_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *controlPlaneClient) GetTopology(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TopologyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TopologyResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_GetTopology_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ControlPlaneServer is the server API for ControlPlane service.
 // All implementations must embed UnimplementedControlPlaneServer
 // for forward compatibility.
@@ -178,6 +214,9 @@ type ControlPlaneServer interface {
 	ListActiveFreezes(context.Context, *ListActiveFreezesRequest) (*ListActiveFreezesResponse, error)
 	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
 	GetAppSnapshot(context.Context, *GetAppSnapshotRequest) (*GetAppSnapshotResponse, error)
+	EmergencyRelease(context.Context, *Empty) (*EmergencyReleaseResponse, error)
+	GetSystemHealth(context.Context, *Empty) (*SystemHealthResponse, error)
+	GetTopology(context.Context, *Empty) (*TopologyResponse, error)
 	mustEmbedUnimplementedControlPlaneServer()
 }
 
@@ -217,6 +256,15 @@ func (UnimplementedControlPlaneServer) GetSnapshot(context.Context, *GetSnapshot
 }
 func (UnimplementedControlPlaneServer) GetAppSnapshot(context.Context, *GetAppSnapshotRequest) (*GetAppSnapshotResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAppSnapshot not implemented")
+}
+func (UnimplementedControlPlaneServer) EmergencyRelease(context.Context, *Empty) (*EmergencyReleaseResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EmergencyRelease not implemented")
+}
+func (UnimplementedControlPlaneServer) GetSystemHealth(context.Context, *Empty) (*SystemHealthResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSystemHealth not implemented")
+}
+func (UnimplementedControlPlaneServer) GetTopology(context.Context, *Empty) (*TopologyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTopology not implemented")
 }
 func (UnimplementedControlPlaneServer) mustEmbedUnimplementedControlPlaneServer() {}
 func (UnimplementedControlPlaneServer) testEmbeddedByValue()                      {}
@@ -412,6 +460,60 @@ func _ControlPlane_GetAppSnapshot_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlPlane_EmergencyRelease_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).EmergencyRelease(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_EmergencyRelease_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).EmergencyRelease(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlPlane_GetSystemHealth_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).GetSystemHealth(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_GetSystemHealth_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).GetSystemHealth(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ControlPlane_GetTopology_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).GetTopology(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_GetTopology_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).GetTopology(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ControlPlane_ServiceDesc is the grpc.ServiceDesc for ControlPlane service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -454,6 +556,18 @@ var ControlPlane_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAppSnapshot",
 			Handler:    _ControlPlane_GetAppSnapshot_Handler,
+		},
+		{
+			MethodName: "EmergencyRelease",
+			Handler:    _ControlPlane_EmergencyRelease_Handler,
+		},
+		{
+			MethodName: "GetSystemHealth",
+			Handler:    _ControlPlane_GetSystemHealth_Handler,
+		},
+		{
+			MethodName: "GetTopology",
+			Handler:    _ControlPlane_GetTopology_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

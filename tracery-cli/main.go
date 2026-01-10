@@ -64,7 +64,26 @@ func main() {
 			os.Exit(1)
 		}
 		getAppSnapshot(ctx, client, os.Args[3])
+	case "mesh":
+		if len(os.Args) < 3 || os.Args[2] != "topology" {
+			fmt.Println("Usage: tracery-cli mesh topology")
+			os.Exit(1)
+		}
+		getTopology(ctx, client)
 
+	case "system":
+		if len(os.Args) < 3 || os.Args[2] != "health" {
+			fmt.Println("Usage: tracery-cli system health")
+			os.Exit(1)
+		}
+		getSystemHealth(ctx, client)
+
+	case "emergency":
+		if len(os.Args) < 3 || os.Args[2] != "disable" {
+			fmt.Println("Usage: tracery-cli emergency disable")
+			os.Exit(1)
+		}
+		emergencyRelease(ctx, client)
 	case "freeze":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: dcdot-cli freeze start|status|list|release ...")
@@ -333,8 +352,8 @@ func getAppSnapshot(ctx context.Context, client pb.ControlPlaneClient, traceID s
 	}
 
 	fmt.Printf("\n🚀 DISTRIBUTED TRACE JOURNEY (%d Hops)\n", len(resp.Snapshots))
-    
-    // ✅ Loop through every snapshot in the list
+
+	// ✅ Loop through every snapshot in the list
 	for i, snap := range resp.Snapshots {
 		printSnapshot(i+1, snap)
 	}
@@ -348,7 +367,9 @@ func printSnapshot(order int, snap *pb.AppSnapshot) {
 	fmt.Println("--------------------------------------------------")
 	fmt.Println("🔍 LOCAL VARIABLES:")
 	for k, v := range snap.LocalVars {
-		if v == "" { v = "(empty)" }
+		if v == "" {
+			v = "(empty)"
+		}
 		fmt.Printf("   %-12s = %s\n", k, v)
 	}
 	fmt.Println("--------------------------------------------------")
@@ -359,30 +380,32 @@ func printSnapshot(order int, snap *pb.AppSnapshot) {
 
 	for i := 0; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
-		if line == "" || strings.HasPrefix(line, "goroutine") { continue }
+		if line == "" || strings.HasPrefix(line, "goroutine") {
+			continue
+		}
 
 		// Heuristic: Is this line a function call? (vs a file path line)
 		isFuncLine := !strings.Contains(line, "/") && !strings.HasPrefix(line, "\t")
-		
+
 		if isFuncLine {
 			// Look ahead to the NEXT line (which contains the file path) to decide context
 			if i+1 < len(lines) {
 				pathLine := strings.TrimSpace(lines[i+1])
-				
+
 				// 🛡️ UNIVERSAL FILTER:
 				// If path contains "/pkg/mod/" -> It's a 3rd party dependency
 				// If path contains "/src/runtime/" or "/src/net/" -> It's Go StdLib
 				// If path contains ".pb.go" -> It's generated Proto code (usually noise)
-				isDependency := strings.Contains(pathLine, "/pkg/mod/") || 
-				                strings.Contains(pathLine, "/src/") || // Catch-all for stdlib
-				                strings.Contains(pathLine, "vendor/") ||
-				                strings.Contains(pathLine, ".pb.go")
+				isDependency := strings.Contains(pathLine, "/pkg/mod/") ||
+					strings.Contains(pathLine, "/src/") || // Catch-all for stdlib
+					strings.Contains(pathLine, "vendor/") ||
+					strings.Contains(pathLine, ".pb.go")
 
 				if !isDependency {
 					// It's USER CODE!
 					funcName := strings.Split(line, "(")[0] // Clean arguments
 					fmt.Printf("   👉 %s\n", funcName)
-					
+
 					// Print the path cleanly
 					cleanPath := strings.Split(pathLine, " +")[0] // Remove offset
 					// Try to shorten absolute paths for readability
@@ -392,7 +415,7 @@ func printSnapshot(order int, snap *pb.AppSnapshot) {
 						cleanPath = parts[len(parts)-2] + "/" + parts[len(parts)-1]
 					}
 					fmt.Printf("      └─ 📂 %s\n", cleanPath)
-					
+
 					foundUserCode = true
 				}
 			}
@@ -401,6 +424,51 @@ func printSnapshot(order int, snap *pb.AppSnapshot) {
 
 	if !foundUserCode {
 		fmt.Println("   (No user code found in stack - check filters)")
+	}
+	fmt.Println("==================================================")
+}
+
+func emergencyRelease(ctx context.Context, client pb.ControlPlaneClient) {
+	resp, err := client.EmergencyRelease(ctx, &pb.Empty{})
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	fmt.Println("🚨 EMERGENCY PROTOCOL EXECUTED 🚨")
+	fmt.Println("==================================================")
+	fmt.Printf("Status:      %s\n", resp.Message)
+	fmt.Printf("Traces Freed: %d\n", resp.FreedCount)
+	fmt.Println("==================================================")
+}
+
+func getSystemHealth(ctx context.Context, client pb.ControlPlaneClient) {
+	resp, err := client.GetSystemHealth(ctx, &pb.Empty{})
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	fmt.Println("🏥 SYSTEM HEALTH REPORT")
+	fmt.Println("==================================================")
+	status := "HEALTHY"
+	if !resp.Healthy { status = "UNHEALTHY" }
+	fmt.Printf("Overall Status: %s\n", status)
+	fmt.Println("--------------------------------------------------")
+	for k, v := range resp.ComponentStatus {
+		fmt.Printf("   %-20s : %s\n", k, strings.ToUpper(v))
+	}
+	fmt.Println("==================================================")
+}
+
+func getTopology(ctx context.Context, client pb.ControlPlaneClient) {
+	resp, err := client.GetTopology(ctx, &pb.Empty{})
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	fmt.Println("🕸️  SERVICE MESH TOPOLOGY")
+	fmt.Println("==================================================")
+	if len(resp.Links) == 0 {
+		fmt.Println("   (No traffic detected yet)")
+	}
+	for _, link := range resp.Links {
+		fmt.Printf("   %s  ──▶  %s\n", strings.ToUpper(link.Source), strings.ToUpper(link.Target))
 	}
 	fmt.Println("==================================================")
 }

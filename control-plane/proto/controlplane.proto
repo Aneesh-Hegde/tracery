@@ -15,6 +15,9 @@ service ControlPlane{
   rpc ListActiveFreezes(ListActiveFreezesRequest) returns (ListActiveFreezesResponse);
   rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
   rpc GetAppSnapshot(GetAppSnapshotRequest) returns (GetAppSnapshotResponse);
+  rpc EmergencyRelease(Empty) returns (EmergencyReleaseResponse);
+  rpc GetSystemHealth(Empty) returns (SystemHealthResponse);
+  rpc GetTopology(Empty) returns (TopologyResponse);
 }
 
 message Breakpoint{
@@ -155,4 +158,26 @@ message AppSnapshot {
 message GetAppSnapshotResponse {
   bool success = 1;
   repeated AppSnapshot snapshots = 2;
+}
+
+message Empty {}
+
+message EmergencyReleaseResponse {
+  bool success = 1;
+  int32 freed_count = 2;
+  string message = 3;
+}
+
+message SystemHealthResponse {
+  bool healthy = 1;
+  map<string, string> component_status = 2;
+}
+
+message TopologyLink {
+  string source = 1;
+  string target = 2;
+}
+
+message TopologyResponse {
+  repeated TopologyLink links = 1;
 }

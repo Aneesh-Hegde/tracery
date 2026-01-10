@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	sdk "github.com/Aneesh-Hegde/tracery/sdk"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -145,6 +146,11 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		span.RecordError(err)
 		return
 	}
+	sdk.Checkpoint(traceID, "start_processing", map[string]interface{}{
+		"orderID": orderReq.OrderID,
+		"amount":  orderReq.Amount,
+		"handler": "handleProcess",
+	})
 	log.Printf("[Service B] Request decoded successfully: OrderID=%s, CustomerID=%s, Amount=%.2f",
 		orderReq.OrderID, orderReq.CustomerID, orderReq.Amount)
 
@@ -193,7 +199,7 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		CustomerID: orderReq.CustomerID,
 		Amount:     orderReq.Amount,
 	}
-	
+
 	reqBody, err := json.Marshal(paymentReq)
 	if err != nil {
 		log.Printf("[Service B] ERROR: Failed to marshal payment request: %v", err)
@@ -202,7 +208,7 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		span.RecordError(err)
 		return
 	}
-	
+
 	fullURL := serviceCURL + "/payment"
 	log.Printf("[Service B] Calling Service C → URL: %s", fullURL)
 	log.Printf("[Service B] Request body: %s", string(reqBody))
@@ -228,7 +234,7 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	resp, err := client.Do(req)
 	duration := time.Since(startTime)
-	
+
 	if err != nil {
 		log.Printf("[Service B] ERROR: HTTP request to Service C failed after %v", duration)
 		log.Printf("[Service B] Error details: %v", err)
@@ -239,7 +245,7 @@ func handleProcess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	log.Printf("[Service B] Received response from Service C in %v", duration)
 	log.Printf("[Service B] Response status: %d %s", resp.StatusCode, resp.Status)
 	log.Printf("[Service B] Response headers: %v", resp.Header)
@@ -311,10 +317,11 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	sdk.Init("service-b")
 	log.Println("[Service B] ==========================================")
 	log.Println("[Service B] Starting Service B (Order Processing)")
 	log.Println("[Service B] ==========================================")
-	
+
 	cleanup := initTracer()
 	defer cleanup()
 
@@ -337,7 +344,7 @@ func main() {
 	log.Printf("[Service B]   - POST /process (Order Processing)")
 	log.Printf("[Service B]   - GET  /health  (Health Check)")
 	log.Printf("[Service B] ==========================================")
-	
+
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("[Service B] FATAL: Failed to start HTTP server: %v", err)
 	}

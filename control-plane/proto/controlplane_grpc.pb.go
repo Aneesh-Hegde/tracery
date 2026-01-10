@@ -28,6 +28,7 @@ const (
 	ControlPlane_ReleaseTrace_FullMethodName       = "/controlplane.ControlPlane/ReleaseTrace"
 	ControlPlane_ListActiveFreezes_FullMethodName  = "/controlplane.ControlPlane/ListActiveFreezes"
 	ControlPlane_GetSnapshot_FullMethodName        = "/controlplane.ControlPlane/GetSnapshot"
+	ControlPlane_GetAppSnapshot_FullMethodName     = "/controlplane.ControlPlane/GetAppSnapshot"
 )
 
 // ControlPlaneClient is the client API for ControlPlane service.
@@ -43,6 +44,7 @@ type ControlPlaneClient interface {
 	ReleaseTrace(ctx context.Context, in *ReleaseTraceRequest, opts ...grpc.CallOption) (*ReleaseTraceResponse, error)
 	ListActiveFreezes(ctx context.Context, in *ListActiveFreezesRequest, opts ...grpc.CallOption) (*ListActiveFreezesResponse, error)
 	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*GetSnapshotResponse, error)
+	GetAppSnapshot(ctx context.Context, in *GetAppSnapshotRequest, opts ...grpc.CallOption) (*GetAppSnapshotResponse, error)
 }
 
 type controlPlaneClient struct {
@@ -152,6 +154,16 @@ func (c *controlPlaneClient) GetSnapshot(ctx context.Context, in *GetSnapshotReq
 	return out, nil
 }
 
+func (c *controlPlaneClient) GetAppSnapshot(ctx context.Context, in *GetAppSnapshotRequest, opts ...grpc.CallOption) (*GetAppSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAppSnapshotResponse)
+	err := c.cc.Invoke(ctx, ControlPlane_GetAppSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ControlPlaneServer is the server API for ControlPlane service.
 // All implementations must embed UnimplementedControlPlaneServer
 // for forward compatibility.
@@ -165,6 +177,7 @@ type ControlPlaneServer interface {
 	ReleaseTrace(context.Context, *ReleaseTraceRequest) (*ReleaseTraceResponse, error)
 	ListActiveFreezes(context.Context, *ListActiveFreezesRequest) (*ListActiveFreezesResponse, error)
 	GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error)
+	GetAppSnapshot(context.Context, *GetAppSnapshotRequest) (*GetAppSnapshotResponse, error)
 	mustEmbedUnimplementedControlPlaneServer()
 }
 
@@ -201,6 +214,9 @@ func (UnimplementedControlPlaneServer) ListActiveFreezes(context.Context, *ListA
 }
 func (UnimplementedControlPlaneServer) GetSnapshot(context.Context, *GetSnapshotRequest) (*GetSnapshotResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSnapshot not implemented")
+}
+func (UnimplementedControlPlaneServer) GetAppSnapshot(context.Context, *GetAppSnapshotRequest) (*GetAppSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAppSnapshot not implemented")
 }
 func (UnimplementedControlPlaneServer) mustEmbedUnimplementedControlPlaneServer() {}
 func (UnimplementedControlPlaneServer) testEmbeddedByValue()                      {}
@@ -378,6 +394,24 @@ func _ControlPlane_GetSnapshot_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ControlPlane_GetAppSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAppSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ControlPlaneServer).GetAppSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ControlPlane_GetAppSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ControlPlaneServer).GetAppSnapshot(ctx, req.(*GetAppSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ControlPlane_ServiceDesc is the grpc.ServiceDesc for ControlPlane service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -416,6 +450,10 @@ var ControlPlane_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSnapshot",
 			Handler:    _ControlPlane_GetSnapshot_Handler,
+		},
+		{
+			MethodName: "GetAppSnapshot",
+			Handler:    _ControlPlane_GetAppSnapshot_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

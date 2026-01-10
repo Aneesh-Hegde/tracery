@@ -58,6 +58,13 @@ func main() {
 		}
 		getSnapshot(ctx, client, os.Args[3])
 
+	case "debug-app":
+		if len(os.Args) < 4 || os.Args[2] != "--trace" {
+			fmt.Println("Usage: tracery-cli debug-app --trace <trace-id>")
+			os.Exit(1)
+		}
+		getAppSnapshot(ctx, client, os.Args[3])
+
 	case "freeze":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: dcdot-cli freeze start|status|list|release ...")
@@ -140,6 +147,7 @@ func printUsage() {
 	fmt.Println("  freeze list")
 	fmt.Println("  freeze release --trace <id>")
 	fmt.Println("  get-snapshot --trace <id>")
+	fmt.Println("  debug-app --trace <id>        (Application Snapshot - Stack/Vars)")
 }
 
 // ---------------------------------------------------------------------
@@ -310,5 +318,89 @@ func getSnapshot(ctx context.Context, client pb.ControlPlaneClient, traceID stri
 	fmt.Println("--------------------------------------------------")
 	fmt.Println("📦 BODY PAYLOAD:")
 	fmt.Println(snap.Body)
+	fmt.Println("==================================================")
+}
+
+func getAppSnapshot(ctx context.Context, client pb.ControlPlaneClient, traceID string) {
+	resp, err := client.GetAppSnapshot(ctx, &pb.GetAppSnapshotRequest{TraceId: traceID})
+	if err != nil {
+		log.Fatalf("Error communicating with Control Plane: %v", err)
+	}
+
+	if !resp.Success || len(resp.Snapshots) == 0 {
+		fmt.Println("❌ No application snapshots found for this trace.")
+		return
+	}
+
+	fmt.Printf("\n🚀 DISTRIBUTED TRACE JOURNEY (%d Hops)\n", len(resp.Snapshots))
+    
+    // ✅ Loop through every snapshot in the list
+	for i, snap := range resp.Snapshots {
+		printSnapshot(i+1, snap)
+	}
+}
+
+func printSnapshot(order int, snap *pb.AppSnapshot) {
+	fmt.Printf("\n[%d] 📦 SERVICE: %s\n", order, strings.ToUpper(snap.ServiceName))
+	fmt.Println("==================================================")
+	fmt.Printf("Checkpoint:  %s\n", snap.Checkpoint)
+	fmt.Printf("Time:        %s\n", snap.Timestamp)
+	fmt.Println("--------------------------------------------------")
+	fmt.Println("🔍 LOCAL VARIABLES:")
+	for k, v := range snap.LocalVars {
+		if v == "" { v = "(empty)" }
+		fmt.Printf("   %-12s = %s\n", k, v)
+	}
+	fmt.Println("--------------------------------------------------")
+	fmt.Println("🥞 STACK TRACE (User Code):")
+
+	lines := strings.Split(snap.StackTrace, "\n")
+	foundUserCode := false
+
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "goroutine") { continue }
+
+		// Heuristic: Is this line a function call? (vs a file path line)
+		isFuncLine := !strings.Contains(line, "/") && !strings.HasPrefix(line, "\t")
+		
+		if isFuncLine {
+			// Look ahead to the NEXT line (which contains the file path) to decide context
+			if i+1 < len(lines) {
+				pathLine := strings.TrimSpace(lines[i+1])
+				
+				// 🛡️ UNIVERSAL FILTER:
+				// If path contains "/pkg/mod/" -> It's a 3rd party dependency
+				// If path contains "/src/runtime/" or "/src/net/" -> It's Go StdLib
+				// If path contains ".pb.go" -> It's generated Proto code (usually noise)
+				isDependency := strings.Contains(pathLine, "/pkg/mod/") || 
+				                strings.Contains(pathLine, "/src/") || // Catch-all for stdlib
+				                strings.Contains(pathLine, "vendor/") ||
+				                strings.Contains(pathLine, ".pb.go")
+
+				if !isDependency {
+					// It's USER CODE!
+					funcName := strings.Split(line, "(")[0] // Clean arguments
+					fmt.Printf("   👉 %s\n", funcName)
+					
+					// Print the path cleanly
+					cleanPath := strings.Split(pathLine, " +")[0] // Remove offset
+					// Try to shorten absolute paths for readability
+					// e.g. /Users/aneesh/go/src/github.com/repo/main.go -> main.go
+					parts := strings.Split(cleanPath, "/")
+					if len(parts) > 2 {
+						cleanPath = parts[len(parts)-2] + "/" + parts[len(parts)-1]
+					}
+					fmt.Printf("      └─ 📂 %s\n", cleanPath)
+					
+					foundUserCode = true
+				}
+			}
+		}
+	}
+
+	if !foundUserCode {
+		fmt.Println("   (No user code found in stack - check filters)")
+	}
 	fmt.Println("==================================================")
 }

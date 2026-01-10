@@ -62,10 +62,28 @@ func startHttpServer(fc *FreezeCoordinator, cp *ControlPlaneServer) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	mux.HandleFunc("/app-snapshot", func(w http.ResponseWriter, r *http.Request) {
+		var snap AppSnapshotData
+		if err := json.NewDecoder(r.Body).Decode(&snap); err != nil {
+			log.Printf("❌ Failed to decode app snapshot: %v", err)
+			return
+		}
+
+		cp.mu.Lock()
+		if cp.appSnapshots == nil {
+			cp.appSnapshots = make(map[string][]*AppSnapshotData)
+		}
+		cp.appSnapshots[snap.TraceID] = append(cp.appSnapshots[snap.TraceID], &snap)
+		cp.mu.Unlock()
+
+		log.Printf("💾 Received App State for Trace: %s (Vars: %d)", snap.TraceID, len(snap.LocalVars))
+		w.WriteHeader(http.StatusOK)
+	})
 	log.Println("🌍 Universal HTTP Interface listening on :8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Printf("HTTP Server failed: %v", err)
 	}
+
 }
 
 type BreakPoint struct {
@@ -77,6 +95,15 @@ type BreakPoint struct {
 	CreatedAt   time.Time
 }
 
+type AppSnapshotData struct {
+	TraceID     string                 `json:"trace_id"`
+	ServiceName string                 `json:"service_name"`
+	Checkpoint  string                 `json:"checkpoint"`
+	StackTrace  string                 `json:"stack_trace"`
+	LocalVars   map[string]interface{} `json:"local_variables"`
+	Timestamp   string                 `json:"timestamp"`
+}
+
 type ControlPlaneServer struct {
 	pb.UnimplementedControlPlaneServer
 	mu                sync.RWMutex
@@ -85,6 +112,7 @@ type ControlPlaneServer struct {
 	freezeCoordinator *FreezeCoordinator
 	traceMonitor      *TraceMonitor
 	snapshots         map[string]*pb.SnapshotData
+	appSnapshots      map[string][]*AppSnapshotData
 }
 
 func NewControlPlaneServer() *ControlPlaneServer {
@@ -92,6 +120,7 @@ func NewControlPlaneServer() *ControlPlaneServer {
 		breakPoints:    make(map[string]*BreakPoint),
 		traceListeners: make([]chan *pb.TraceEvent, 0),
 		snapshots:      make(map[string]*pb.SnapshotData),
+		appSnapshots:   make(map[string][]*AppSnapshotData),
 	}
 }
 
@@ -362,6 +391,38 @@ func (s *ControlPlaneServer) GetSnapshot(ctx context.Context, req *pb.GetSnapsho
 	return &pb.GetSnapshotResponse{
 		Success:     false,
 		RespMessage: "Snapshot not found (trace might not be frozen or captured yet)",
+	}, nil
+}
+
+func (s *ControlPlaneServer) GetAppSnapshot(ctx context.Context, req *pb.GetAppSnapshotRequest) (*pb.GetAppSnapshotResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snapshots, exists := s.appSnapshots[req.TraceId]
+	if !exists || len(snapshots) == 0 {
+		return &pb.GetAppSnapshotResponse{Success: false}, nil
+	}
+
+	// Build the Proto response list
+	var protoSnapshots []*pb.AppSnapshot
+	for _, snap := range snapshots {
+		vars := make(map[string]string)
+		for k, v := range snap.LocalVars {
+			vars[k] = fmt.Sprintf("%v", v)
+		}
+
+		protoSnapshots = append(protoSnapshots, &pb.AppSnapshot{
+			ServiceName: snap.ServiceName,
+			Checkpoint:  snap.Checkpoint,
+			StackTrace:  snap.StackTrace,
+			LocalVars:   vars,
+			Timestamp:   snap.Timestamp,
+		})
+	}
+
+	return &pb.GetAppSnapshotResponse{
+		Success:   true,
+		Snapshots: protoSnapshots,
 	}, nil
 }
 

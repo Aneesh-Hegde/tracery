@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	sdk "github.com/Aneesh-Hegde/tracery/sdk"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -116,6 +117,13 @@ func handleOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		span.RecordError(err)
 	}
+
+	sdk.Checkpoint(traceID, "before_validation", map[string]interface{}{
+		"orderID":    orderReq.OrderID,
+		"amount":     orderReq.Amount,
+		"customerID": orderReq.CustomerID,
+		"remoteAddr": r.RemoteAddr,
+	})
 	log.Printf("[Service A] Processing order %s for customer %s - TraceID: %s",
 		orderReq.OrderID, orderReq.CustomerID, traceID)
 
@@ -188,6 +196,7 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	sdk.Init("service-a")
 	cleanup := initTracer()
 	defer cleanup()
 

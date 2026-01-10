@@ -1,8 +1,9 @@
-go 1.24.9
+go 1.25.5
 
 use (
 	./control-plane
 	./envoy-filter
+	./sdk
 	./service-a
 	./service-b
 	./service-c

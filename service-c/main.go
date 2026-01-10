@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	_ "github.com/lib/pq"
+
+	sdk "github.com/Aneesh-Hegde/tracery/sdk"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -217,6 +219,12 @@ func handlePayment(w http.ResponseWriter, r *http.Request) {
 		span.RecordError(err)
 		return
 	}
+	sdk.Checkpoint(traceID, "payment_processing", map[string]interface{}{
+		"orderID":    paymentReq.OrderID,
+		"amount":     paymentReq.Amount,
+		"customerID": paymentReq.CustomerID,
+		"db_status":  "connected", // Useful debugging info
+	})
 	log.Printf("[Service C] Request decoded: OrderID=%s, CustomerID=%s, Amount=%.2f",
 		paymentReq.OrderID, paymentReq.CustomerID, paymentReq.Amount)
 
@@ -309,6 +317,7 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	sdk.Init("service-c")
 	log.Println("[Service C] ==========================================")
 	log.Println("[Service C] Starting Service C (Payment Service)")
 	log.Println("[Service C] ==========================================")
